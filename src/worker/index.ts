@@ -2,13 +2,16 @@ import type { Env } from "./types";
 import { requestMagicLink, verifyMagicLink, logout } from "./auth";
 import { badRequest, json } from "./utils";
 import {
+  clearManualScore,
   createLeague,
   joinLeague,
   leaderboard,
   listMatches,
   matchPredictions,
   me,
+  recalculateMatchEndpoint,
   removeLeagueMember,
+  setManualScore,
   todayMatches,
   updateProfile,
   upsertPrediction,
@@ -42,6 +45,17 @@ async function handleApi(request: Request, env: Env) {
   const matchPredictionParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/matches\/([^/]+)\/predictions$/);
   if (request.method === "GET" && matchPredictionParams) {
     return matchPredictions(request, env, matchPredictionParams[0], matchPredictionParams[1]);
+  }
+
+  const manualScoreParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/admin\/matches\/([^/]+)\/manual-score$/);
+  if (manualScoreParams) {
+    if (request.method === "POST") return setManualScore(request, env, manualScoreParams[0], manualScoreParams[1]);
+    if (request.method === "DELETE") return clearManualScore(request, env, manualScoreParams[0], manualScoreParams[1]);
+  }
+
+  const recalculateParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/admin\/matches\/([^/]+)\/recalculate$/);
+  if (request.method === "POST" && recalculateParams) {
+    return recalculateMatchEndpoint(request, env, recalculateParams[0], recalculateParams[1]);
   }
 
   const removeMemberParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/members\/([^/]+)$/);
