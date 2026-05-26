@@ -56,6 +56,7 @@ export async function syncWorldCupMatches(env: Env) {
         final_home = excluded.final_home,
         final_away = excluded.final_away,
         points_multiplier = excluded.points_multiplier,
+        api_provider = excluded.api_provider,
         last_synced_at = excluded.last_synced_at,
         updated_at = excluded.updated_at
     `).bind(
@@ -92,14 +93,21 @@ export async function syncWorldCupMatches(env: Env) {
 
 async function fetchProviderMatches(_env: Env): Promise<ProviderMatch[]> {
   // TODO: wire API-Football or football-data.org mapping here.
-  // Keep this isolated so the rest of the app is provider-agnostic.
+  // Keep API scores as the default source. Admin manual overrides are stored separately
+  // and always win in scoring logic, so API syncs never overwrite manual corrections.
   return stubMatches();
 }
 
 async function recalculateFinishedMatches(env: Env) {
   const rows = await env.DB.prepare(`
     SELECT id FROM matches
-    WHERE status IN ('finished', 'FINISHED') AND (final_home IS NOT NULL OR score_120_home IS NOT NULL OR score_90_home IS NOT NULL)
+    WHERE status IN ('finished', 'FINISHED')
+      AND (
+        manual_final_home IS NOT NULL
+        OR final_home IS NOT NULL
+        OR score_120_home IS NOT NULL
+        OR score_90_home IS NOT NULL
+      )
   `).all<{ id: string }>();
 
   for (const row of rows.results ?? []) {
