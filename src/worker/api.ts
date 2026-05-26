@@ -110,7 +110,7 @@ export async function leaderboard(request: Request, env: Env, leagueId: string) 
 
 export async function listMatches(env: Env) {
   const rows = await env.DB.prepare(`SELECT * FROM matches ORDER BY kickoff_at ASC`).all<MatchRow>();
-  return json({ matches: rows.results ?? [] });
+  return json({ matches: (rows.results ?? []).map(withEffectiveScore) });
 }
 
 export async function todayMatches(env: Env) {
@@ -125,7 +125,17 @@ export async function todayMatches(env: Env) {
     ORDER BY kickoff_at ASC
   `).bind(start.toISOString(), end.toISOString()).all<MatchRow>();
 
-  return json({ matches: rows.results ?? [] });
+  return json({ matches: (rows.results ?? []).map(withEffectiveScore) });
+}
+
+function withEffectiveScore(match: MatchRow) {
+  const score = usableFinalScore(match);
+  return {
+    ...match,
+    effective_final_home: score?.home ?? null,
+    effective_final_away: score?.away ?? null,
+    effective_score_source: score?.source ?? "none",
+  };
 }
 
 export async function upsertPrediction(request: Request, env: Env, leagueId: string) {
@@ -190,6 +200,78 @@ export async function removeLeagueMember(request: Request, env: Env, leagueId: s
     WHERE league_id = ? AND user_id = ?
   `).bind(nowIso(), user.id, leagueId, userId).run();
 
+  return json({ ok: true });
+}
+
+async function requireLeagueAdmin(request: Request, env: Env, leagueId: string) {
+  const user = await requireUser(request, env);
+  if (!user) return { error: badRequest("Non authentifié.", 401), user: null };
+
+  const league = await env.DB.prepare("SELECT admin_user_id FROM leagues WHERE id = ?")
+    .bind(leagueId)
+    .first<{ admin_user_id: string }>();
+
+  if (!league) return { error: badRequest("Ligue introuvable.", 404), user: null };
+  if (league.admin_user_id !== user.id) return { error: badRequest("Réservé à l’admin de la ligue.", 403), user: null };
+
+  return { error: null, user };
+}
+
+export async function setManualScore(request: Request, env: Env, leagueId: string, matchId: string) {
+  const admin = await requireLeagueAdmin(request, env, leagueId);
+  if (admin.error || !admin.user) return admin.error;
+
+  const { homeScore, awayScore } = await readJson<{ homeScore?: number; awayScore?: number }>(request);
+  if (!Number.isInteger(homeScore) || !Number.isInteger(awayScore) || homeScore < 0 || awayScore < 0) {
+    return badRequest("Score manuel invalide.");
+  }
+
+  const match = await env.DB.prepare("SELECT id FROM matches WHERE id = ?").bind(matchId).first();
+  if (!match) return badRequest("Match introuvable.", 404);
+
+  await env.DB.prepare(`
+    UPDATE matches SET
+      manual_final_home = ?,
+      manual_final_away = ?,
+      manual_score_set_by_user_id = ?,
+      manual_score_set_at = ?,
+      score_source = 'manual',
+      status = CASE WHEN status IN ('scheduled', 'live') THEN 'finished' ELSE status END,
+      updated_at = ?
+    WHERE id = ?
+  `).bind(homeScore, awayScore, admin.user.id, nowIso(), nowIso(), matchId).run();
+
+  await recalculateMatch(env, matchId);
+  return json({ ok: true, source: "manual" });
+}
+
+export async function clearManualScore(request: Request, env: Env, leagueId: string, matchId: string) {
+  const admin = await requireLeagueAdmin(request, env, leagueId);
+  if (admin.error) return admin.error;
+
+  const match = await env.DB.prepare("SELECT id FROM matches WHERE id = ?").bind(matchId).first();
+  if (!match) return badRequest("Match introuvable.", 404);
+
+  await env.DB.prepare(`
+    UPDATE matches SET
+      manual_final_home = NULL,
+      manual_final_away = NULL,
+      manual_score_set_by_user_id = NULL,
+      manual_score_set_at = NULL,
+      score_source = 'api',
+      updated_at = ?
+    WHERE id = ?
+  `).bind(nowIso(), matchId).run();
+
+  await recalculateMatch(env, matchId);
+  return json({ ok: true, source: "api" });
+}
+
+export async function recalculateMatchEndpoint(request: Request, env: Env, leagueId: string, matchId: string) {
+  const admin = await requireLeagueAdmin(request, env, leagueId);
+  if (admin.error) return admin.error;
+
+  await recalculateMatch(env, matchId);
   return json({ ok: true });
 }
 
