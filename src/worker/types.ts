@@ -32,5 +32,10 @@ export type MatchRow = {
   score_120_away: number | null;
   score_90_home: number | null;
   score_90_away: number | null;
+  manual_final_home: number | null;
+  manual_final_away: number | null;
+  manual_score_set_by_user_id: string | null;
+  manual_score_set_at: string | null;
+  score_source: "api" | "manual" | "none";
   points_multiplier: number;
 };
