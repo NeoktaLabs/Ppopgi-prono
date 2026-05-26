@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ppopgi-prono",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ppopgi-prono",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["0 5 * * *", "*/15 * * * *"]
+  },
+  "vars": {
+    "APP_NAME": "Ppopgi Prono",
+    "APP_URL": "http://localhost:5173",
+    "SESSION_DAYS": "90",
+    "MAGIC_LINK_MINUTES": "15",
+    "LEAGUE_CODE_LENGTH": "6",
+    "FOOTBALL_PROVIDER": "stub",
+    "GLOBAL_ADMIN_EMAILS": "me@juliengarin.com"
+  }
+}
