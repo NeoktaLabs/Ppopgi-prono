@@ -6,16 +6,23 @@ export function resultOf(home: number, away: number) {
   return "draw";
 }
 
-export function usableFinalScore(match: MatchRow): { home: number; away: number } | null {
+export function usableFinalScore(match: MatchRow): { home: number; away: number; source: "manual" | "api" } | null {
+  if (match.manual_final_home !== null && match.manual_final_away !== null) {
+    return { home: match.manual_final_home, away: match.manual_final_away, source: "manual" };
+  }
+
   if (match.score_120_home !== null && match.score_120_away !== null) {
-    return { home: match.score_120_home, away: match.score_120_away };
+    return { home: match.score_120_home, away: match.score_120_away, source: "api" };
   }
+
   if (match.final_home !== null && match.final_away !== null) {
-    return { home: match.final_home, away: match.final_away };
+    return { home: match.final_home, away: match.final_away, source: "api" };
   }
+
   if (match.score_90_home !== null && match.score_90_away !== null) {
-    return { home: match.score_90_home, away: match.score_90_away };
+    return { home: match.score_90_home, away: match.score_90_away, source: "api" };
   }
+
   return null;
 }
 
