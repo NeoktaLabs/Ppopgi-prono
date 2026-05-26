@@ -1,6 +1,7 @@
 import type { Env } from "./types";
 import { badRequest, json, nowIso, readJson, requireUser } from "./utils";
 import { recalculateMatch } from "./api";
+import { savePreMatchSnapshotsForMatch } from "./live";
 
 function adminEmails(env: Env) {
   return (env.GLOBAL_ADMIN_EMAILS ?? "")
@@ -33,6 +34,8 @@ export async function setGlobalManualScore(request: Request, env: Env, matchId: 
   const match = await env.DB.prepare("SELECT id FROM matches WHERE id = ?").bind(matchId).first();
   if (!match) return badRequest("Match not found.", 404);
 
+  await savePreMatchSnapshotsForMatch(env, matchId);
+
   await env.DB.prepare(`
     UPDATE matches SET
       manual_final_home = ?,
@@ -55,6 +58,8 @@ export async function clearGlobalManualScore(request: Request, env: Env, matchId
 
   const match = await env.DB.prepare("SELECT id FROM matches WHERE id = ?").bind(matchId).first();
   if (!match) return badRequest("Match not found.", 404);
+
+  await savePreMatchSnapshotsForMatch(env, matchId);
 
   await env.DB.prepare(`
     UPDATE matches SET

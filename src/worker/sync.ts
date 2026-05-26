@@ -33,8 +33,20 @@ export async function scheduledSync(env: Env) {
   await recalculateFinishedMatches(env);
 }
 
+async function latestSuccessfulSync(env: Env) {
+  const row = await env.DB.prepare(`
+    SELECT created_at FROM sync_logs
+    WHERE type = 'matches' AND status = 'success'
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).first<{ created_at: string }>();
+  return row ? new Date(row.created_at).getTime() : 0;
+}
+
 async function shouldCallProvider(env: Env) {
   const now = new Date();
+  const latestSyncAt = await latestSuccessfulSync(env);
+  const minutesSinceSync = latestSyncAt ? (Date.now() - latestSyncAt) / 60_000 : Infinity;
   const soon = new Date(now.getTime() + 2 * 60 * 60_000);
   const active = await env.DB.prepare(`
     SELECT id FROM matches
@@ -43,7 +55,7 @@ async function shouldCallProvider(env: Env) {
     LIMIT 1
   `).bind(now.toISOString(), soon.toISOString()).first();
 
-  if (active) return true;
+  if (active) return minutesSinceSync >= 2;
 
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
@@ -53,7 +65,8 @@ async function shouldCallProvider(env: Env) {
     SELECT id FROM matches WHERE kickoff_at >= ? AND kickoff_at < ? LIMIT 1
   `).bind(todayStart.toISOString(), todayEnd.toISOString()).first();
 
-  return !hasTodayMatch;
+  if (hasTodayMatch) return minutesSinceSync >= 30;
+  return minutesSinceSync >= 24 * 60;
 }
 
 export async function syncWorldCupMatches(env: Env) {
