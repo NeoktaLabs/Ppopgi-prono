@@ -38,5 +38,9 @@ export type MatchRow = {
   manual_score_set_by_user_id: string | null;
   manual_score_set_at: string | null;
   score_source: "api" | "manual" | "none";
+  live_home_score: number | null;
+  live_away_score: number | null;
+  live_minute: number | null;
+  last_live_synced_at: string | null;
   points_multiplier: number;
 };
