@@ -2,6 +2,7 @@ import type { Env } from "./types";
 import { nowIso } from "./utils";
 import { multiplierForStage } from "./scoring";
 import { recalculateMatch } from "./api";
+import { savePreMatchSnapshotsForMatch } from "./live";
 
 type ProviderMatch = {
   externalId: string;
@@ -12,6 +13,9 @@ type ProviderMatch = {
   groupName?: string | null;
   venue?: string | null;
   status: string;
+  liveHomeScore?: number | null;
+  liveAwayScore?: number | null;
+  liveMinute?: number | null;
   score90Home?: number | null;
   score90Away?: number | null;
   score120Home?: number | null;
@@ -23,8 +27,33 @@ type ProviderMatch = {
 };
 
 export async function scheduledSync(env: Env) {
-  await syncWorldCupMatches(env);
+  if (await shouldCallProvider(env)) {
+    await syncWorldCupMatches(env);
+  }
   await recalculateFinishedMatches(env);
+}
+
+async function shouldCallProvider(env: Env) {
+  const now = new Date();
+  const soon = new Date(now.getTime() + 2 * 60 * 60_000);
+  const active = await env.DB.prepare(`
+    SELECT id FROM matches
+    WHERE status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time')
+       OR (kickoff_at >= ? AND kickoff_at <= ? AND status NOT IN ('finished', 'FINISHED', 'cancelled', 'postponed'))
+    LIMIT 1
+  `).bind(now.toISOString(), soon.toISOString()).first();
+
+  if (active) return true;
+
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(todayStart);
+  todayEnd.setDate(todayEnd.getDate() + 1);
+  const hasTodayMatch = await env.DB.prepare(`
+    SELECT id FROM matches WHERE kickoff_at >= ? AND kickoff_at < ? LIMIT 1
+  `).bind(todayStart.toISOString(), todayEnd.toISOString()).first();
+
+  return !hasTodayMatch;
 }
 
 export async function syncWorldCupMatches(env: Env) {
@@ -35,10 +64,11 @@ export async function syncWorldCupMatches(env: Env) {
     await env.DB.prepare(`
       INSERT INTO matches (
         id, external_id, home_team, away_team, kickoff_at, stage, group_name, venue, status,
+        live_home_score, live_away_score, live_minute, last_live_synced_at,
         score_90_home, score_90_away, score_120_home, score_120_away, penalty_home, penalty_away,
         final_home, final_away, points_multiplier, api_provider, last_synced_at, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(external_id) DO UPDATE SET
         home_team = excluded.home_team,
         away_team = excluded.away_team,
@@ -47,6 +77,10 @@ export async function syncWorldCupMatches(env: Env) {
         group_name = excluded.group_name,
         venue = excluded.venue,
         status = excluded.status,
+        live_home_score = excluded.live_home_score,
+        live_away_score = excluded.live_away_score,
+        live_minute = excluded.live_minute,
+        last_live_synced_at = excluded.last_live_synced_at,
         score_90_home = excluded.score_90_home,
         score_90_away = excluded.score_90_away,
         score_120_home = excluded.score_120_home,
@@ -69,6 +103,10 @@ export async function syncWorldCupMatches(env: Env) {
       match.groupName ?? null,
       match.venue ?? null,
       match.status,
+      match.liveHomeScore ?? null,
+      match.liveAwayScore ?? null,
+      match.liveMinute ?? null,
+      match.liveHomeScore !== undefined || match.liveAwayScore !== undefined ? nowIso() : null,
       match.score90Home ?? null,
       match.score90Away ?? null,
       match.score120Home ?? null,
@@ -93,8 +131,7 @@ export async function syncWorldCupMatches(env: Env) {
 
 async function fetchProviderMatches(_env: Env): Promise<ProviderMatch[]> {
   // TODO: wire API-Football or football-data.org mapping here.
-  // Keep API scores as the default source. Admin manual overrides are stored separately
-  // and always win in scoring logic, so API syncs never overwrite manual corrections.
+  // Provider calls are centralized in cron/sync; users only poll our D1-backed API.
   return stubMatches();
 }
 
@@ -111,6 +148,7 @@ async function recalculateFinishedMatches(env: Env) {
   `).all<{ id: string }>();
 
   for (const row of rows.results ?? []) {
+    await savePreMatchSnapshotsForMatch(env, row.id);
     await recalculateMatch(env, row.id);
   }
 }
@@ -120,13 +158,26 @@ function stubMatches(): ProviderMatch[] {
   return [
     {
       externalId: "stub-group-1",
-      homeTeam: "Suisse",
-      awayTeam: "Allemagne",
+      homeTeam: "Switzerland",
+      awayTeam: "Germany",
       kickoffAt: new Date(Date.UTC(year, 5, 12, 18, 0, 0)).toISOString(),
       stage: "GROUP_STAGE",
       groupName: "A",
-      venue: "Stade Exemple",
+      venue: "Example Stadium",
       status: "scheduled",
+    },
+    {
+      externalId: "stub-live-1",
+      homeTeam: "France",
+      awayTeam: "Brazil",
+      kickoffAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      stage: "GROUP_STAGE",
+      groupName: "B",
+      venue: "Live Demo Stadium",
+      status: "live",
+      liveHomeScore: 1,
+      liveAwayScore: 0,
+      liveMinute: 31,
     },
     {
       externalId: "stub-final-1",
