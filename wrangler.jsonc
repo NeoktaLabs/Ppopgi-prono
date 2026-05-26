@@ -25,6 +25,7 @@
     "SESSION_DAYS": "90",
     "MAGIC_LINK_MINUTES": "15",
     "LEAGUE_CODE_LENGTH": "6",
-    "FOOTBALL_PROVIDER": "stub"
+    "FOOTBALL_PROVIDER": "stub",
+    "GLOBAL_ADMIN_EMAILS": "me@juliengarin.com"
   }
 }
