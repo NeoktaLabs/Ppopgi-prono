@@ -1,6 +1,6 @@
 # Ppopgi Prono
 
-Web app mobile-first de pronostics Coupe du Monde.
+Mobile-first World Cup prediction web app.
 
 ## Stack
 
@@ -13,22 +13,22 @@ Web app mobile-first de pronostics Coupe du Monde.
 
 ## V1 features
 
-- Connexion par magic link e-mail
-- Session longue durée via cookie HttpOnly
-- Création et rejoindre une ligue avec code obligatoire
-- Admin unique par ligue
-- Suppression de joueur par admin
-- Modification du nom, ouverture/fermeture des inscriptions, transfert admin, régénération du code par admin de ligue
-- Pronostics verrouillés au coup d’envoi
-- Pronostics des autres cachés avant coup d’envoi, visibles ensuite
-- Scores automatisables via cron
-- Score manuel possible par admin global en cas de retard/erreur API
-- Override manuel prioritaire sur le score API et appliqué à toutes les ligues
-- Recalcul global des scores pour toutes les ligues
-- Suppression de l’override pour revenir au score API
-- Score pris après prolongations éventuelles, tirs au but ignorés
-- Multiplicateurs: groupes x1, huitièmes x2, quarts x3, demies/petite finale x4, finale x5
-- Leaderboard, historique joueur, stats avancées
+- Magic link email authentication
+- Long-lived session via HttpOnly cookie
+- Create and join leagues with a required league code
+- One admin per league
+- League admins can remove players
+- League admins can rename the league, open/close registrations, transfer admin ownership, and regenerate the league code
+- Predictions are locked at kickoff
+- Other players’ predictions are hidden before kickoff and visible once the match starts
+- Scores can be automated via cron
+- Global admins can manually set scores if the API is delayed or wrong
+- Manual score overrides take priority over API scores and apply to all leagues
+- Global score recalculation applies to all leagues
+- Manual overrides can be cleared to return to API scores
+- Scores are based on the result after extra time when applicable; penalty shootouts are ignored
+- Multipliers: group stage x1, round of 16 x2, quarter-finals x3, semi-finals/third-place match x4, final x5
+- Leaderboard, player history, advanced stats
 
 ## Local setup
 
