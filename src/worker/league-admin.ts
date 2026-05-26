@@ -3,14 +3,14 @@ import { badRequest, json, nowIso, randomCode, readJson, requireUser } from "./u
 
 async function requireLeagueAdmin(request: Request, env: Env, leagueId: string) {
   const user = await requireUser(request, env);
-  if (!user) return { error: badRequest("Non authentifié.", 401), user: null };
+  if (!user) return { error: badRequest("Not authenticated.", 401), user: null };
 
   const league = await env.DB.prepare("SELECT id, admin_user_id FROM leagues WHERE id = ?")
     .bind(leagueId)
     .first<{ id: string; admin_user_id: string }>();
 
-  if (!league) return { error: badRequest("Ligue introuvable.", 404), user: null };
-  if (league.admin_user_id !== user.id) return { error: badRequest("Réservé à l’admin de la ligue.", 403), user: null };
+  if (!league) return { error: badRequest("League not found.", 404), user: null };
+  if (league.admin_user_id !== user.id) return { error: badRequest("League admin access required.", 403), user: null };
 
   return { error: null, user };
 }
@@ -37,7 +37,7 @@ export async function updateLeagueSettings(request: Request, env: Env, leagueId:
 
   if (body.name !== undefined) {
     const clean = body.name.trim();
-    if (clean.length < 3 || clean.length > 80) return badRequest("Le nom de ligue doit contenir entre 3 et 80 caractères.");
+    if (clean.length < 3 || clean.length > 80) return badRequest("League name must be between 3 and 80 characters.");
     updates.push("name = ?");
     values.push(clean);
   }
@@ -47,7 +47,7 @@ export async function updateLeagueSettings(request: Request, env: Env, leagueId:
     values.push(body.isJoinable ? 1 : 0);
   }
 
-  if (updates.length === 0) return badRequest("Aucun paramètre à modifier.");
+  if (updates.length === 0) return badRequest("No settings to update.");
 
   updates.push("updated_at = ?");
   values.push(nowIso(), leagueId);
@@ -74,15 +74,15 @@ export async function transferLeagueAdmin(request: Request, env: Env, leagueId: 
   if (admin.error || !admin.user) return admin.error;
 
   const { userId } = await readJson<{ userId?: string }>(request);
-  if (!userId) return badRequest("Nouvel admin manquant.");
-  if (userId === admin.user.id) return badRequest("Cet utilisateur est déjà admin de la ligue.");
+  if (!userId) return badRequest("New admin is required.");
+  if (userId === admin.user.id) return badRequest("This user is already the league admin.");
 
   const target = await env.DB.prepare(`
     SELECT id FROM league_members
     WHERE league_id = ? AND user_id = ? AND removed_at IS NULL
   `).bind(leagueId, userId).first();
 
-  if (!target) return badRequest("Le nouvel admin doit être un membre actif de la ligue.", 404);
+  if (!target) return badRequest("The new admin must be an active league member.", 404);
 
   await env.DB.batch([
     env.DB.prepare("UPDATE leagues SET admin_user_id = ?, updated_at = ? WHERE id = ?")
