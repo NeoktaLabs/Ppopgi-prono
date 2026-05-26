@@ -7,6 +7,7 @@ export type Env = {
   MAGIC_LINK_MINUTES: string;
   LEAGUE_CODE_LENGTH: string;
   FOOTBALL_PROVIDER: string;
+  GLOBAL_ADMIN_EMAILS: string;
   FOOTBALL_API_KEY?: string;
   EMAIL?: { send: (message: unknown) => Promise<void> };
 };
