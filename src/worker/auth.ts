@@ -5,7 +5,7 @@ export async function requestMagicLink(request: Request, env: Env) {
   const { email } = await readJson<{ email?: string }>(request);
   const normalizedEmail = email?.trim().toLowerCase();
   if (!normalizedEmail || !normalizedEmail.includes("@")) {
-    return json({ error: "Adresse e-mail invalide." }, { status: 400 });
+    return json({ error: "Invalid email address." }, { status: 400 });
   }
 
   const recent = await env.DB.prepare(`
@@ -13,7 +13,7 @@ export async function requestMagicLink(request: Request, env: Env) {
   `).bind(normalizedEmail, new Date(Date.now() - 60_000).toISOString()).first();
 
   if (recent) {
-    return json({ error: "Un lien vient déjà d’être envoyé. Réessaie dans une minute." }, { status: 429 });
+    return json({ error: "A magic link was already sent. Try again in one minute." }, { status: 429 });
   }
 
   const token = randomToken();
@@ -32,8 +32,8 @@ export async function requestMagicLink(request: Request, env: Env) {
 }
 
 async function sendMagicLinkEmail(env: Env, to: string, url: string) {
-  const subject = `${env.APP_NAME}: ton lien de connexion`;
-  const body = `Clique sur ce lien pour te connecter à ${env.APP_NAME}: ${url}\n\nCe lien expire bientôt et ne peut être utilisé qu'une seule fois.`;
+  const subject = `${env.APP_NAME}: your login link`;
+  const body = `Click this link to sign in to ${env.APP_NAME}: ${url}\n\nThis link expires soon and can only be used once.`;
 
   if (env.EMAIL?.send) {
     await env.EMAIL.send({ to, subject, text: body });
@@ -46,7 +46,7 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
 export async function verifyMagicLink(request: Request, env: Env) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
-  if (!token) return json({ error: "Token manquant." }, { status: 400 });
+  if (!token) return json({ error: "Missing token." }, { status: 400 });
 
   const tokenHash = await sha256(token);
   const link = await env.DB.prepare(`
@@ -54,7 +54,7 @@ export async function verifyMagicLink(request: Request, env: Env) {
     WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
   `).bind(tokenHash, nowIso()).first<{ id: string; email: string }>();
 
-  if (!link) return json({ error: "Lien invalide ou expiré." }, { status: 400 });
+  if (!link) return json({ error: "Invalid or expired link." }, { status: 400 });
 
   await env.DB.prepare("UPDATE magic_links SET used_at = ? WHERE id = ?")
     .bind(nowIso(), link.id)
