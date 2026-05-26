@@ -1,6 +1,6 @@
 import type { Env, MatchRow } from "./types";
 import { badRequest, json, requireUser } from "./utils";
-import { calculatePredictionPoints, resultOf, usableFinalScore } from "./scoring";
+import { calculatePredictionPoints, usableFinalScore } from "./scoring";
 
 type LeaderboardRow = {
   user_id: string;
@@ -118,28 +118,28 @@ async function provisionalLiveLeaderboard(env: Env, leagueId: string, official: 
   }));
 }
 
-async function latestPostMatchSnapshot(env: Env, leagueId: string) {
+async function latestPreBatchSnapshot(env: Env, leagueId: string) {
   const latest = await env.DB.prepare(`
-    SELECT match_id, created_at
+    SELECT snapshot_key, created_at
     FROM leaderboard_snapshots
-    WHERE league_id = ? AND snapshot_type = 'pre_match'
+    WHERE league_id = ? AND snapshot_type = 'pre_batch' AND snapshot_key IS NOT NULL
     ORDER BY created_at DESC
     LIMIT 1
-  `).bind(leagueId).first<{ match_id: string; created_at: string }>();
+  `).bind(leagueId).first<{ snapshot_key: string; created_at: string }>();
 
   if (!latest) return null;
 
   const rows = await env.DB.prepare(`
     SELECT user_id, rank
     FROM leaderboard_snapshots
-    WHERE league_id = ? AND match_id = ? AND snapshot_type = 'pre_match'
-  `).bind(leagueId, latest.match_id).all<{ user_id: string; rank: number }>();
+    WHERE league_id = ? AND snapshot_key = ? AND snapshot_type = 'pre_batch'
+  `).bind(leagueId, latest.snapshot_key).all<{ user_id: string; rank: number }>();
 
   return new Map((rows.results ?? []).map((row) => [row.user_id, row.rank]));
 }
 
 async function withLastMatchDeltas(env: Env, leagueId: string, official: LeaderboardRow[]) {
-  const previousRanks = await latestPostMatchSnapshot(env, leagueId);
+  const previousRanks = await latestPreBatchSnapshot(env, leagueId);
 
   return official.map((row) => {
     const previousRank = previousRanks?.get(row.user_id) ?? row.rank;
@@ -220,23 +220,30 @@ export async function leagueHome(request: Request, env: Env, leagueId: string) {
   });
 }
 
-export async function savePreMatchSnapshotsForMatch(env: Env, matchId: string) {
+export async function savePreMatchSnapshotsForMatches(env: Env, matchIds: string[]) {
+  if (matchIds.length === 0) return;
+
+  const snapshotKey = matchIds.slice().sort().join("+");
   const leagues = await env.DB.prepare(`SELECT id FROM leagues`).all<{ id: string }>();
 
   for (const league of leagues.results ?? []) {
     const exists = await env.DB.prepare(`
       SELECT id FROM leaderboard_snapshots
-      WHERE league_id = ? AND match_id = ? AND snapshot_type = 'pre_match'
+      WHERE league_id = ? AND snapshot_key = ? AND snapshot_type = 'pre_batch'
       LIMIT 1
-    `).bind(league.id, matchId).first();
+    `).bind(league.id, snapshotKey).first();
     if (exists) continue;
 
     const board = await officialLeaderboard(env, league.id);
     for (const row of board) {
       await env.DB.prepare(`
-        INSERT INTO leaderboard_snapshots (id, league_id, match_id, user_id, rank, points, exact_scores, correct_results, predictions_count, snapshot_type, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pre_match', datetime('now'))
-      `).bind(crypto.randomUUID(), league.id, matchId, row.user_id, row.rank, row.points, row.exact_scores, row.correct_results, row.predictions_count).run();
+        INSERT INTO leaderboard_snapshots (id, league_id, match_id, user_id, rank, points, exact_scores, correct_results, predictions_count, snapshot_type, snapshot_key, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pre_batch', ?, datetime('now'))
+      `).bind(crypto.randomUUID(), league.id, matchIds[0], row.user_id, row.rank, row.points, row.exact_scores, row.correct_results, row.predictions_count, snapshotKey).run();
     }
   }
+}
+
+export async function savePreMatchSnapshotsForMatch(env: Env, matchId: string) {
+  await savePreMatchSnapshotsForMatches(env, [matchId]);
 }
