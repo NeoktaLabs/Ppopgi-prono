@@ -14,6 +14,11 @@ import {
   upsertPrediction,
 } from "./api";
 import {
+  regenerateLeagueCode,
+  transferLeagueAdmin,
+  updateLeagueSettings,
+} from "./league-admin";
+import {
   clearGlobalManualScore,
   recalculateAllGlobalScores,
   recalculateGlobalMatch,
@@ -38,6 +43,21 @@ async function handleApi(request: Request, env: Env) {
 
   if (request.method === "POST" && pathname === "/api/leagues") return createLeague(request, env);
   if (request.method === "POST" && pathname === "/api/leagues/join") return joinLeague(request, env);
+
+  const leagueSettingsParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/settings$/);
+  if (request.method === "PATCH" && leagueSettingsParams) {
+    return updateLeagueSettings(request, env, leagueSettingsParams[0]);
+  }
+
+  const regenerateCodeParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/regenerate-code$/);
+  if (request.method === "POST" && regenerateCodeParams) {
+    return regenerateLeagueCode(request, env, regenerateCodeParams[0]);
+  }
+
+  const transferAdminParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/transfer-admin$/);
+  if (request.method === "POST" && transferAdminParams) {
+    return transferLeagueAdmin(request, env, transferAdminParams[0]);
+  }
 
   const leaderboardParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/leaderboard$/);
   if (request.method === "GET" && leaderboardParams) return leaderboard(request, env, leaderboardParams[0]);
