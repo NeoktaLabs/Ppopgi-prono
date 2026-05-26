@@ -18,6 +18,7 @@ Web app mobile-first de pronostics Coupe du Monde.
 - Création et rejoindre une ligue avec code obligatoire
 - Admin unique par ligue
 - Suppression de joueur par admin
+- Modification du nom, ouverture/fermeture des inscriptions, transfert admin, régénération du code par admin de ligue
 - Pronostics verrouillés au coup d’envoi
 - Pronostics des autres cachés avant coup d’envoi, visibles ensuite
 - Scores automatisables via cron
@@ -42,11 +43,26 @@ Create a D1 database and replace `REPLACE_WITH_D1_DATABASE_ID` in `wrangler.json
 npm run db:migrate:local
 ```
 
+## Permission model
+
+Regular users can manage their profile, join leagues, create leagues, and submit predictions.
+
+League admins are restricted to league-scoped actions only:
+
+```http
+PATCH /api/leagues/:leagueId/settings
+POST /api/leagues/:leagueId/regenerate-code
+POST /api/leagues/:leagueId/transfer-admin
+DELETE /api/leagues/:leagueId/members/:userId
+```
+
+League admins cannot edit fixtures, scores, sync jobs, point rules, or global recalculation.
+
+Global admins manage tournament-wide data only. Global admin access is controlled by `GLOBAL_ADMIN_EMAILS` in `wrangler.jsonc` or your Cloudflare environment variables.
+
 ## Global score administration
 
 Match results are global for the whole app. Editing a score or recalculating points applies to every league, because all leagues use the same World Cup matches and results.
-
-Global admin access is controlled by `GLOBAL_ADMIN_EMAILS` in `wrangler.jsonc` or your Cloudflare environment variables.
 
 API scores remain the default source. A global admin can override a match score to speed up scoring or correct an API issue:
 
