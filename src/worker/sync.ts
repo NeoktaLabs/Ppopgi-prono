@@ -2,7 +2,7 @@ import type { Env } from "./types";
 import { nowIso } from "./utils";
 import { multiplierForStage } from "./scoring";
 import { recalculateMatch } from "./api";
-import { savePreMatchSnapshotsForMatch } from "./live";
+import { savePreMatchSnapshotsForMatches } from "./live";
 
 type ProviderMatch = {
   externalId: string;
@@ -147,9 +147,11 @@ async function recalculateFinishedMatches(env: Env) {
       )
   `).all<{ id: string }>();
 
-  for (const row of rows.results ?? []) {
-    await savePreMatchSnapshotsForMatch(env, row.id);
-    await recalculateMatch(env, row.id);
+  const matchIds = (rows.results ?? []).map((row) => row.id);
+  await savePreMatchSnapshotsForMatches(env, matchIds);
+
+  for (const matchId of matchIds) {
+    await recalculateMatch(env, matchId);
   }
 }
 
