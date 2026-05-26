@@ -11,11 +11,11 @@ function adminEmails(env: Env) {
 
 async function requireGlobalAdmin(request: Request, env: Env) {
   const user = await requireUser(request, env);
-  if (!user) return { error: badRequest("Non authentifié.", 401), user: null };
+  if (!user) return { error: badRequest("Not authenticated.", 401), user: null };
 
   const allowed = adminEmails(env);
   if (!allowed.includes(user.email.toLowerCase())) {
-    return { error: badRequest("Réservé à l’admin global.", 403), user: null };
+    return { error: badRequest("Global admin access required.", 403), user: null };
   }
 
   return { error: null, user };
@@ -27,11 +27,11 @@ export async function setGlobalManualScore(request: Request, env: Env, matchId: 
 
   const { homeScore, awayScore } = await readJson<{ homeScore?: number; awayScore?: number }>(request);
   if (!Number.isInteger(homeScore) || !Number.isInteger(awayScore) || homeScore < 0 || awayScore < 0) {
-    return badRequest("Score manuel invalide.");
+    return badRequest("Invalid manual score.");
   }
 
   const match = await env.DB.prepare("SELECT id FROM matches WHERE id = ?").bind(matchId).first();
-  if (!match) return badRequest("Match introuvable.", 404);
+  if (!match) return badRequest("Match not found.", 404);
 
   await env.DB.prepare(`
     UPDATE matches SET
@@ -54,7 +54,7 @@ export async function clearGlobalManualScore(request: Request, env: Env, matchId
   if (admin.error) return admin.error;
 
   const match = await env.DB.prepare("SELECT id FROM matches WHERE id = ?").bind(matchId).first();
-  if (!match) return badRequest("Match introuvable.", 404);
+  if (!match) return badRequest("Match not found.", 404);
 
   await env.DB.prepare(`
     UPDATE matches SET
