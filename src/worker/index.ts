@@ -2,20 +2,23 @@ import type { Env } from "./types";
 import { requestMagicLink, verifyMagicLink, logout } from "./auth";
 import { badRequest, json } from "./utils";
 import {
-  clearManualScore,
   createLeague,
   joinLeague,
   leaderboard,
   listMatches,
   matchPredictions,
   me,
-  recalculateMatchEndpoint,
   removeLeagueMember,
-  setManualScore,
   todayMatches,
   updateProfile,
   upsertPrediction,
 } from "./api";
+import {
+  clearGlobalManualScore,
+  recalculateAllGlobalScores,
+  recalculateGlobalMatch,
+  setGlobalManualScore,
+} from "./global-admin";
 import { scheduledSync, syncWorldCupMatches } from "./sync";
 
 function routeParams(pathname: string, pattern: RegExp) {
@@ -47,17 +50,6 @@ async function handleApi(request: Request, env: Env) {
     return matchPredictions(request, env, matchPredictionParams[0], matchPredictionParams[1]);
   }
 
-  const manualScoreParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/admin\/matches\/([^/]+)\/manual-score$/);
-  if (manualScoreParams) {
-    if (request.method === "POST") return setManualScore(request, env, manualScoreParams[0], manualScoreParams[1]);
-    if (request.method === "DELETE") return clearManualScore(request, env, manualScoreParams[0], manualScoreParams[1]);
-  }
-
-  const recalculateParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/admin\/matches\/([^/]+)\/recalculate$/);
-  if (request.method === "POST" && recalculateParams) {
-    return recalculateMatchEndpoint(request, env, recalculateParams[0], recalculateParams[1]);
-  }
-
   const removeMemberParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/members\/([^/]+)$/);
   if (request.method === "DELETE" && removeMemberParams) {
     return removeLeagueMember(request, env, removeMemberParams[0], removeMemberParams[1]);
@@ -65,6 +57,21 @@ async function handleApi(request: Request, env: Env) {
 
   if (request.method === "GET" && pathname === "/api/worldcup/matches") return listMatches(env);
   if (request.method === "GET" && pathname === "/api/worldcup/today") return todayMatches(env);
+
+  const globalManualScoreParams = routeParams(pathname, /^\/api\/admin\/matches\/([^/]+)\/manual-score$/);
+  if (globalManualScoreParams) {
+    if (request.method === "POST") return setGlobalManualScore(request, env, globalManualScoreParams[0]);
+    if (request.method === "DELETE") return clearGlobalManualScore(request, env, globalManualScoreParams[0]);
+  }
+
+  const globalRecalculateMatchParams = routeParams(pathname, /^\/api\/admin\/matches\/([^/]+)\/recalculate$/);
+  if (request.method === "POST" && globalRecalculateMatchParams) {
+    return recalculateGlobalMatch(request, env, globalRecalculateMatchParams[0]);
+  }
+
+  if (request.method === "POST" && pathname === "/api/admin/recalculate") {
+    return recalculateAllGlobalScores(request, env);
+  }
 
   if (request.method === "POST" && pathname === "/api/admin/sync/matches") {
     await syncWorldCupMatches(env);
