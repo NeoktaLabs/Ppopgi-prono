@@ -16,6 +16,12 @@
       "migrations_dir": "migrations"
     }
   ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "destination_address": "tech@ppopgi.xyz"
+    }
+  ],
   "triggers": {
     "crons": ["0 5 * * *", "*/15 * * * *"]
   },
@@ -31,6 +37,7 @@
     "FOOTBALL_API_SEASON": "2026",
     "GLOBAL_ADMIN_EMAILS": "tech@ppopgi.xyz",
     "EMAIL_FROM": "Ppopgi Auth <auth@ppopgi.xyz>",
-    "EMAIL_REPLY_TO": "tech@ppopgi.xyz"
+    "EMAIL_REPLY_TO": "tech@ppopgi.xyz",
+    "TURNSTILE_SITE_KEY": ""
   }
 }
