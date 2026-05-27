@@ -19,7 +19,7 @@
   "send_email": [
     {
       "name": "EMAIL",
-      "destination_address": "tech@ppopgi.xyz"
+      "allowed_sender_addresses": ["auth@ppopgi.xyz"]
     }
   ],
   "triggers": {
@@ -36,7 +36,8 @@
     "FOOTBALL_API_LEAGUE_ID": "1",
     "FOOTBALL_API_SEASON": "2026",
     "GLOBAL_ADMIN_EMAILS": "tech@ppopgi.xyz",
-    "EMAIL_FROM": "Ppopgi Auth <auth@ppopgi.xyz>",
+    "EMAIL_FROM": "auth@ppopgi.xyz",
+    "EMAIL_FROM_NAME": "Ppopgi Auth",
     "EMAIL_REPLY_TO": "tech@ppopgi.xyz",
     "TURNSTILE_SITE_KEY": "0x4AAAAAADXGbNGDwM2GQXFb"
   }
