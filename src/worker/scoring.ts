@@ -46,10 +46,16 @@ export function calculatePredictionPoints(args: {
 }
 
 export function multiplierForStage(stage: string | null) {
-  const normalized = (stage ?? "").toLowerCase();
+  const normalized = (stage ?? "").toLowerCase().trim();
+
+  if (!normalized) return 1;
+  if (normalized.includes("group")) return 1;
+
   if (normalized.includes("final") && !normalized.includes("semi") && !normalized.includes("third")) return 5;
-  if (normalized.includes("semi") || normalized.includes("third") || normalized.includes("3")) return 4;
+  if (normalized.includes("semi")) return 4;
+  if (normalized.includes("third") || normalized.includes("3rd")) return 4;
   if (normalized.includes("quarter")) return 3;
-  if (normalized.includes("last_16") || normalized.includes("round of 16") || normalized.includes("huit")) return 2;
+  if (normalized.includes("last_16") || normalized.includes("round of 16") || normalized.includes("huit") || normalized.includes("1/8")) return 2;
+
   return 1;
 }
