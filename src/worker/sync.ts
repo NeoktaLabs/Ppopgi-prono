@@ -56,6 +56,10 @@ export async function syncWorldCupMatches(env: Env) {
   const provider = env.FOOTBALL_PROVIDER || "stub";
   const matches = provider === "api-football" ? await fetchApiFootballMatches(env) : stubMatches();
 
+  if (provider !== "stub") {
+    await env.DB.prepare("DELETE FROM matches WHERE api_provider = 'stub' OR external_id LIKE 'stub-%'").run();
+  }
+
   for (const match of matches) {
     await env.DB.prepare(`
       INSERT INTO matches (id, external_id, home_team, away_team, kickoff_at, stage, group_name, venue, status, live_home_score, live_away_score, live_minute, last_live_synced_at, score_90_home, score_90_away, score_120_home, score_120_away, penalty_home, penalty_away, final_home, final_away, points_multiplier, api_provider, last_synced_at, created_at, updated_at)
