@@ -8,6 +8,7 @@ import {
   listMatches,
   matchPredictions,
   me,
+  myPredictions,
   removeLeagueMember,
   todayMatches,
   updateProfile,
@@ -61,6 +62,9 @@ async function handleApi(request: Request, env: Env) {
 
   const leaderboardParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/leaderboard$/);
   if (request.method === "GET" && leaderboardParams) return leaderboard(request, env, leaderboardParams[0]);
+
+  const myPredictionParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/predictions\/me$/);
+  if (request.method === "GET" && myPredictionParams) return myPredictions(request, env, myPredictionParams[0]);
 
   const predictionParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/predictions$/);
   if (request.method === "POST" && predictionParams) return upsertPrediction(request, env, predictionParams[0]);

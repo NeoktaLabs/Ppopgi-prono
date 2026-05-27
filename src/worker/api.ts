@@ -78,17 +78,32 @@ export async function todayMatches(env: Env) {
   return json({ matches: (rows.results ?? []).map(withEffectiveScore) });
 }
 
+export async function myPredictions(request: Request, env: Env, leagueId: string) {
+  const user = await requireUser(request, env);
+  if (!user) return badRequest("Not authenticated.", 401);
+  const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
+  if (!membership) return badRequest("You are not a member of this league.", 403);
+  const rows = await env.DB.prepare("SELECT match_id, home_score, away_score, updated_at FROM predictions WHERE league_id = ? AND user_id = ?").bind(leagueId, user.id).all();
+  return json({ predictions: rows.results ?? [] });
+}
+
+function parseScore(value: unknown) {
+  return Number.isInteger(value) && typeof value === "number" && value >= 0 ? value : null;
+}
+
 export async function upsertPrediction(request: Request, env: Env, leagueId: string) {
   const user = await requireUser(request, env);
   if (!user) return badRequest("Not authenticated.", 401);
-  const { matchId, homeScore, awayScore } = await readJson<{ matchId?: string; homeScore?: number; awayScore?: number }>(request);
-  if (!matchId || homeScore === undefined || awayScore === undefined) return badRequest("Prediction is incomplete.");
+  const body = await readJson<{ matchId?: string; homeScore?: unknown; awayScore?: unknown }>(request);
+  const homeScore = parseScore(body.homeScore);
+  const awayScore = parseScore(body.awayScore);
+  if (!body.matchId || homeScore === null || awayScore === null) return badRequest("Prediction is incomplete.");
   const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
   if (!membership) return badRequest("You are not a member of this league.", 403);
-  const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(matchId).first<MatchRow>();
+  const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(body.matchId).first<MatchRow>();
   if (!match) return badRequest("Match not found.", 404);
   if (Date.now() >= new Date(match.kickoff_at).getTime()) return badRequest("Kickoff has passed, this prediction is locked.", 409);
-  await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(league_id, user_id, match_id) DO UPDATE SET home_score = excluded.home_score, away_score = excluded.away_score, updated_at = excluded.updated_at`).bind(crypto.randomUUID(), leagueId, user.id, matchId, homeScore, awayScore, nowIso(), nowIso()).run();
+  await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(league_id, user_id, match_id) DO UPDATE SET home_score = excluded.home_score, away_score = excluded.away_score, updated_at = excluded.updated_at`).bind(crypto.randomUUID(), leagueId, user.id, body.matchId, homeScore, awayScore, nowIso(), nowIso()).run();
   return json({ ok: true });
 }
 

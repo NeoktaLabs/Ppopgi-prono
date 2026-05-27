@@ -52,9 +52,20 @@ async function shouldCallProvider(env: Env) {
   return minutesSinceSync >= 24 * 60;
 }
 
+async function removeStubFixtures(env: Env) {
+  const rows = await env.DB.prepare("SELECT id FROM matches WHERE api_provider = 'stub' OR external_id LIKE 'stub-%'").all<{ id: string }>();
+  for (const row of rows.results ?? []) {
+    await env.DB.prepare("DELETE FROM leaderboard_snapshots WHERE match_id = ?").bind(row.id).run();
+    await env.DB.prepare("DELETE FROM predictions WHERE match_id = ?").bind(row.id).run();
+    await env.DB.prepare("DELETE FROM matches WHERE id = ?").bind(row.id).run();
+  }
+}
+
 export async function syncWorldCupMatches(env: Env) {
   const provider = env.FOOTBALL_PROVIDER || "stub";
   const matches = provider === "api-football" ? await fetchApiFootballMatches(env) : stubMatches();
+
+  if (provider !== "stub") await removeStubFixtures(env);
 
   for (const match of matches) {
     await env.DB.prepare(`
