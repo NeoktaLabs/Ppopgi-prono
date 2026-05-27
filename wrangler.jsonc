@@ -38,6 +38,6 @@
     "GLOBAL_ADMIN_EMAILS": "tech@ppopgi.xyz",
     "EMAIL_FROM": "Ppopgi Auth <auth@ppopgi.xyz>",
     "EMAIL_REPLY_TO": "tech@ppopgi.xyz",
-    "TURNSTILE_SITE_KEY": ""
+    "TURNSTILE_SITE_KEY": "0x4AAAAAADXGbNGDwM2GQXFb"
   }
 }
