@@ -85,9 +85,20 @@ async function handleApi(request: Request, env: Env) {
 
   if (request.method === "POST" && pathname === "/api/admin/recalculate") return recalculateAllGlobalScores(request, env);
 
-  if (request.method === "POST" && pathname === "/api/admin/sync/matches") {
-    await syncWorldCupMatches(env);
-    return json({ ok: true });
+  if (pathname === "/api/admin/sync/matches") {
+    if (request.method === "GET") {
+      return json({
+        ok: false,
+        message: "This endpoint triggers a match sync and must be called with POST while logged in as a global admin.",
+        method: "POST",
+        curl: `curl -X POST ${url.origin}/api/admin/sync/matches --cookie "session=YOUR_SESSION_COOKIE"`,
+      }, { status: 405 });
+    }
+
+    if (request.method === "POST") {
+      await syncWorldCupMatches(env);
+      return json({ ok: true });
+    }
   }
 
   return badRequest("Route not found.", 404);
