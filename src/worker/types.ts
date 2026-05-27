@@ -8,7 +8,12 @@ export type Env = {
   LEAGUE_CODE_LENGTH: string;
   FOOTBALL_PROVIDER: string;
   GLOBAL_ADMIN_EMAILS: string;
+  EMAIL_FROM: string;
+  EMAIL_REPLY_TO?: string;
   FOOTBALL_API_KEY?: string;
+  FOOTBALL_API_BASE_URL?: string;
+  FOOTBALL_API_LEAGUE_ID?: string;
+  FOOTBALL_API_SEASON?: string;
   EMAIL?: { send: (message: unknown) => Promise<void> };
 };
 

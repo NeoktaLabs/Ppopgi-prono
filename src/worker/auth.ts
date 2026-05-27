@@ -33,10 +33,16 @@ export async function requestMagicLink(request: Request, env: Env) {
 
 async function sendMagicLinkEmail(env: Env, to: string, url: string) {
   const subject = `${env.APP_NAME}: your login link`;
-  const body = `Click this link to sign in to ${env.APP_NAME}: ${url}\n\nThis link expires soon and can only be used once.`;
+  const text = `Click this link to sign in to ${env.APP_NAME}: ${url}\n\nThis link expires soon and can only be used once.`;
 
   if (env.EMAIL?.send) {
-    await env.EMAIL.send({ to, subject, text: body });
+    await env.EMAIL.send({
+      from: env.EMAIL_FROM,
+      to,
+      replyTo: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
+      subject,
+      text,
+    });
     return;
   }
 

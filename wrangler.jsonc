@@ -26,6 +26,11 @@
     "MAGIC_LINK_MINUTES": "15",
     "LEAGUE_CODE_LENGTH": "6",
     "FOOTBALL_PROVIDER": "stub",
-    "GLOBAL_ADMIN_EMAILS": "me@juliengarin.com"
+    "FOOTBALL_API_BASE_URL": "https://v3.football.api-sports.io",
+    "FOOTBALL_API_LEAGUE_ID": "1",
+    "FOOTBALL_API_SEASON": "2026",
+    "GLOBAL_ADMIN_EMAILS": "me@juliengarin.com",
+    "EMAIL_FROM": "Ppopgi Prono <no-reply@example.com>",
+    "EMAIL_REPLY_TO": "me@juliengarin.com"
   }
 }
