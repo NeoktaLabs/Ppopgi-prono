@@ -2,11 +2,19 @@ import type { Env, MatchRow } from "./types";
 import { badRequest, json, nowIso, randomCode, readJson, requireUser } from "./utils";
 import { calculatePredictionPoints, usableFinalScore } from "./scoring";
 
+function isGlobalAdmin(env: Env, email: string) {
+  return (env.GLOBAL_ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(email.toLowerCase());
+}
+
 export async function me(request: Request, env: Env) {
   const user = await requireUser(request, env);
   if (!user) return json({ user: null, leagues: [] });
   const leagues = await env.DB.prepare(`SELECT leagues.id, leagues.name, leagues.code, league_members.role FROM league_members JOIN leagues ON leagues.id = league_members.league_id WHERE league_members.user_id = ? AND league_members.removed_at IS NULL ORDER BY league_members.joined_at DESC`).bind(user.id).all();
-  return json({ user, leagues: leagues.results ?? [] });
+  return json({ user: { ...user, is_global_admin: isGlobalAdmin(env, user.email) }, leagues: leagues.results ?? [] });
 }
 
 export async function updateProfile(request: Request, env: Env) {
