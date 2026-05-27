@@ -10,6 +10,8 @@ export type Env = {
   GLOBAL_ADMIN_EMAILS: string;
   EMAIL_FROM: string;
   EMAIL_REPLY_TO?: string;
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_SECRET_KEY?: string;
   FOOTBALL_API_KEY?: string;
   FOOTBALL_API_BASE_URL?: string;
   FOOTBALL_API_LEAGUE_ID?: string;
