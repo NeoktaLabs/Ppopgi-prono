@@ -67,7 +67,10 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
   }
 
   await env.EMAIL.send({
-    from: env.EMAIL_FROM,
+    from: {
+      email: env.EMAIL_FROM,
+      name: env.EMAIL_FROM_NAME || env.APP_NAME,
+    },
     to,
     replyTo: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
     subject,
