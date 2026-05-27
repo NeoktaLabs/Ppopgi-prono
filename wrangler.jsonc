@@ -12,7 +12,7 @@
     {
       "binding": "DB",
       "database_name": "ppopgi-prono",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "d5a431b0-0777-47e9-9f4f-47cbfde4f6ac",
       "migrations_dir": "migrations"
     }
   ],
