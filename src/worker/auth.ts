@@ -24,6 +24,10 @@ async function verifyTurnstile(request: Request, env: Env, token?: string) {
   return result.success === true;
 }
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function requestMagicLink(request: Request, env: Env) {
   const { email, turnstileToken } = await readJson<MagicLinkRequest>(request);
   const normalizedEmail = email?.trim().toLowerCase();
@@ -53,7 +57,13 @@ export async function requestMagicLink(request: Request, env: Env) {
   `).bind(crypto.randomUUID(), normalizedEmail, tokenHash, expiresAt, nowIso()).run();
 
   const verifyUrl = `${env.APP_URL}/api/auth/verify?token=${encodeURIComponent(token)}`;
-  await sendMagicLinkEmail(env, normalizedEmail, verifyUrl);
+
+  try {
+    await sendMagicLinkEmail(env, normalizedEmail, verifyUrl);
+  } catch (error) {
+    console.error("Magic link email failed", { to: normalizedEmail, error: errorMessage(error) });
+    return json({ error: "Magic link email failed. Check Worker logs and Cloudflare Email sender configuration." }, { status: 502 });
+  }
 
   return json({ ok: true });
 }

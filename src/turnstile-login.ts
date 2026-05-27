@@ -7,7 +7,8 @@ type TurnstileApi = {
       "expired-callback": () => void;
       "error-callback": () => void;
     },
-  ) => void;
+  ) => string;
+  reset: (widgetId?: string) => void;
 };
 
 type AppWindow = Window & {
@@ -15,6 +16,7 @@ type AppWindow = Window & {
 };
 
 let turnstileToken: string | null = null;
+let turnstileWidgetId: string | null = null;
 let scriptLoading = false;
 
 async function getTurnstileSiteKey() {
@@ -41,6 +43,14 @@ function findLoginFormRow() {
   return emailInput.closest(".form-row") ?? emailInput.parentElement;
 }
 
+function resetTurnstile() {
+  const appWindow = window as AppWindow;
+  turnstileToken = null;
+  if (appWindow.turnstile && turnstileWidgetId) {
+    appWindow.turnstile.reset(turnstileWidgetId);
+  }
+}
+
 function renderTurnstile(siteKey: string) {
   const appWindow = window as AppWindow;
   const row = findLoginFormRow();
@@ -51,7 +61,7 @@ function renderTurnstile(siteKey: string) {
   container.className = "turnstile-login";
   row.insertAdjacentElement("afterend", container);
 
-  appWindow.turnstile.render(container, {
+  turnstileWidgetId = appWindow.turnstile.render(container, {
     sitekey: siteKey,
     callback: (token) => {
       turnstileToken = token;
@@ -69,8 +79,9 @@ function patchFetch() {
   const originalFetch = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const isMagicLinkRequest = url.includes("/api/auth/request-link");
 
-    if (url.includes("/api/auth/request-link") && init?.body && turnstileToken) {
+    if (isMagicLinkRequest && init?.body && turnstileToken) {
       try {
         const body = JSON.parse(String(init.body));
         init = {
@@ -82,7 +93,9 @@ function patchFetch() {
       }
     }
 
-    return originalFetch(input, init);
+    const response = await originalFetch(input, init);
+    if (isMagicLinkRequest) resetTurnstile();
+    return response;
   };
 }
 
