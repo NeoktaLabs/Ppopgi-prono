@@ -1,11 +1,38 @@
 import type { Env, User } from "./types";
 import { addDays, addMinutes, clearSessionCookie, json, nowIso, randomToken, readJson, sessionCookie, sha256 } from "./utils";
 
+type MagicLinkRequest = {
+  email?: string;
+  turnstileToken?: string;
+};
+
+async function verifyTurnstile(request: Request, env: Env, token?: string) {
+  if (!env.TURNSTILE_SECRET_KEY) return true;
+  if (!token) return false;
+
+  const formData = new FormData();
+  formData.append("secret", env.TURNSTILE_SECRET_KEY);
+  formData.append("response", token);
+  const ip = request.headers.get("CF-Connecting-IP");
+  if (ip) formData.append("remoteip", ip);
+
+  const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    body: formData,
+  });
+  const result = await response.json().catch(() => ({ success: false })) as { success?: boolean };
+  return result.success === true;
+}
+
 export async function requestMagicLink(request: Request, env: Env) {
-  const { email } = await readJson<{ email?: string }>(request);
+  const { email, turnstileToken } = await readJson<MagicLinkRequest>(request);
   const normalizedEmail = email?.trim().toLowerCase();
   if (!normalizedEmail || !normalizedEmail.includes("@")) {
     return json({ error: "Invalid email address." }, { status: 400 });
+  }
+
+  if (!(await verifyTurnstile(request, env, turnstileToken))) {
+    return json({ error: "Captcha verification failed." }, { status: 403 });
   }
 
   const recent = await env.DB.prepare(`
@@ -35,18 +62,17 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
   const subject = `${env.APP_NAME}: your login link`;
   const text = `Click this link to sign in to ${env.APP_NAME}: ${url}\n\nThis link expires soon and can only be used once.`;
 
-  if (env.EMAIL?.send) {
-    await env.EMAIL.send({
-      from: env.EMAIL_FROM,
-      to,
-      replyTo: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
-      subject,
-      text,
-    });
-    return;
+  if (!env.EMAIL?.send) {
+    throw new Error("Cloudflare Email binding EMAIL is not configured.");
   }
 
-  console.log("Magic link email not configured", { to, url });
+  await env.EMAIL.send({
+    from: env.EMAIL_FROM,
+    to,
+    replyTo: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
+    subject,
+    text,
+  });
 }
 
 export async function verifyMagicLink(request: Request, env: Env) {
