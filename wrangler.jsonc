@@ -27,7 +27,7 @@
   },
   "vars": {
     "APP_NAME": "Ppopgi Prono",
-    "APP_URL": "http://localhost:5173",
+    "APP_URL": "https://league.ppopgi.xyz",
     "SESSION_DAYS": "90",
     "MAGIC_LINK_MINUTES": "15",
     "LEAGUE_CODE_LENGTH": "6",
