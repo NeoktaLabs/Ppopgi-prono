@@ -31,7 +31,7 @@
     "SESSION_DAYS": "90",
     "MAGIC_LINK_MINUTES": "15",
     "LEAGUE_CODE_LENGTH": "6",
-    "FOOTBALL_PROVIDER": "stub",
+    "FOOTBALL_PROVIDER": "api-football",
     "FOOTBALL_API_BASE_URL": "https://v3.football.api-sports.io",
     "FOOTBALL_API_LEAGUE_ID": "1",
     "FOOTBALL_API_SEASON": "2026",
