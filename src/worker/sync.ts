@@ -61,6 +61,17 @@ async function removeStubFixtures(env: Env) {
   }
 }
 
+async function repairStoredMultipliers(env: Env) {
+  const rows = await env.DB.prepare("SELECT id, stage, points_multiplier FROM matches").all<{ id: string; stage: string | null; points_multiplier: number }>();
+  for (const row of rows.results ?? []) {
+    const multiplier = multiplierForStage(row.stage);
+    if (multiplier !== row.points_multiplier) {
+      await env.DB.prepare("UPDATE matches SET points_multiplier = ?, updated_at = ? WHERE id = ?").bind(multiplier, nowIso(), row.id).run();
+      await recalculateMatch(env, row.id);
+    }
+  }
+}
+
 export async function syncWorldCupMatches(env: Env) {
   const provider = env.FOOTBALL_PROVIDER || "stub";
   const matches = provider === "api-football" ? await fetchApiFootballMatches(env) : stubMatches();
@@ -79,6 +90,8 @@ export async function syncWorldCupMatches(env: Env) {
       multiplierForStage(match.stage ?? null), provider, nowIso(), nowIso(), nowIso(),
     ).run();
   }
+
+  await repairStoredMultipliers(env);
 
   await env.DB.prepare(`INSERT INTO sync_logs (id, provider, type, status, message, created_at) VALUES (?, ?, 'matches', 'success', ?, ?)`).bind(crypto.randomUUID(), provider, `Synced ${matches.length} matches`, nowIso()).run();
 }
