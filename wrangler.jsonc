@@ -26,8 +26,8 @@
     "crons": ["0 5 * * *", "*/15 * * * *"]
   },
   "vars": {
-    "APP_NAME": "Ppopgi Prono",
-    "APP_URL": "https://league.ppopgi.xyz",
+    "APP_NAME": "Ppopgi Predictions",
+    "APP_URL": "https://predict.ppopgi.xyz",
     "SESSION_DAYS": "90",
     "MAGIC_LINK_MINUTES": "15",
     "LEAGUE_CODE_LENGTH": "6",
