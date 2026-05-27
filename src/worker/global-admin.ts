@@ -22,12 +22,18 @@ async function requireGlobalAdmin(request: Request, env: Env) {
   return { error: null, user };
 }
 
+function parseManualScore(value: unknown) {
+  return Number.isInteger(value) && typeof value === "number" && value >= 0 ? value : null;
+}
+
 export async function setGlobalManualScore(request: Request, env: Env, matchId: string) {
   const admin = await requireGlobalAdmin(request, env);
   if (admin.error || !admin.user) return admin.error;
 
-  const { homeScore, awayScore } = await readJson<{ homeScore?: number; awayScore?: number }>(request);
-  if (!Number.isInteger(homeScore) || !Number.isInteger(awayScore) || homeScore < 0 || awayScore < 0) {
+  const body = await readJson<{ homeScore?: unknown; awayScore?: unknown }>(request);
+  const homeScore = parseManualScore(body.homeScore);
+  const awayScore = parseManualScore(body.awayScore);
+  if (homeScore === null || awayScore === null) {
     return badRequest("Invalid manual score.");
   }
 
