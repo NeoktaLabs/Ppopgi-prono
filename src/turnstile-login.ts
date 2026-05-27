@@ -22,6 +22,7 @@ let siteKeyCache: string | null = null;
 let scriptLoading = false;
 let fetchPatched = false;
 let renderRequested = false;
+let tokenResolver: ((token: string | null) => void) | null = null;
 
 async function getTurnstileSiteKey() {
   if (siteKeyCache) return siteKeyCache;
@@ -58,6 +59,12 @@ function hasReasonableEmail() {
   return value.length > 3 && value.includes("@");
 }
 
+function resolveToken(token: string | null) {
+  if (!tokenResolver) return;
+  tokenResolver(token);
+  tokenResolver = null;
+}
+
 function resetTurnstile() {
   const appWindow = window as AppWindow;
   turnstileToken = null;
@@ -71,40 +78,64 @@ function renderTurnstile(siteKey: string) {
   const row = findLoginFormRow();
   if (!row || !appWindow.turnstile || document.querySelector("[data-turnstile-login]")) return false;
 
+  const wrapper = document.createElement("div");
+  wrapper.className = "turnstile-login-wrap";
   const container = document.createElement("div");
   container.setAttribute("data-turnstile-login", "true");
   container.className = "turnstile-login";
-  row.insertAdjacentElement("afterend", container);
+  wrapper.appendChild(container);
+  row.insertAdjacentElement("afterend", wrapper);
 
   turnstileWidgetId = appWindow.turnstile.render(container, {
     sitekey: siteKey,
-    appearance: "interaction-only",
+    appearance: "always",
     callback: (token) => {
       turnstileToken = token;
+      resolveToken(token);
     },
     "expired-callback": () => {
       turnstileToken = null;
     },
     "error-callback": () => {
       turnstileToken = null;
+      resolveToken(null);
     },
   });
   return true;
 }
 
 async function ensureTurnstileRendered() {
-  if (renderRequested || document.querySelector("[data-turnstile-login]")) return;
-  if (!hasReasonableEmail()) return;
+  if (!hasReasonableEmail()) return false;
+  if (document.querySelector("[data-turnstile-login]")) return true;
 
   renderRequested = true;
   const siteKey = await getTurnstileSiteKey();
-  if (!siteKey) return;
+  if (!siteKey) return false;
 
   loadTurnstileScript();
-  const interval = window.setInterval(() => {
-    if (renderTurnstile(siteKey)) window.clearInterval(interval);
-  }, 250);
-  window.setTimeout(() => window.clearInterval(interval), 6000);
+  return await new Promise<boolean>((resolve) => {
+    const interval = window.setInterval(() => {
+      if (renderTurnstile(siteKey)) {
+        window.clearInterval(interval);
+        resolve(true);
+      }
+    }, 150);
+    window.setTimeout(() => {
+      window.clearInterval(interval);
+      resolve(false);
+    }, 6000);
+  });
+}
+
+async function waitForTurnstileToken() {
+  if (turnstileToken) return turnstileToken;
+  const rendered = await ensureTurnstileRendered();
+  if (!rendered) return null;
+  if (turnstileToken) return turnstileToken;
+  return await new Promise<string | null>((resolve) => {
+    tokenResolver = resolve;
+    window.setTimeout(() => resolveToken(null), 12000);
+  });
 }
 
 function watchEmailIntent() {
@@ -112,8 +143,9 @@ function watchEmailIntent() {
     const input = getEmailInput();
     if (!input) return;
     window.clearInterval(interval);
-    input.addEventListener("input", () => void ensureTurnstileRendered());
-    input.addEventListener("blur", () => void ensureTurnstileRendered());
+    input.addEventListener("input", () => {
+      if (!renderRequested) void ensureTurnstileRendered();
+    });
   }, 250);
   window.setTimeout(() => window.clearInterval(interval), 10000);
 }
@@ -127,7 +159,7 @@ function patchFetch() {
     const isMagicLinkRequest = url.includes("/api/auth/request-link");
 
     if (isMagicLinkRequest && !turnstileToken) {
-      await ensureTurnstileRendered();
+      await waitForTurnstileToken();
     }
 
     if (isMagicLinkRequest && init?.body && turnstileToken) {
