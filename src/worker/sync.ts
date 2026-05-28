@@ -42,9 +42,11 @@ async function shouldCallProvider(env: Env) {
   const now = new Date();
   const latestSyncAt = await latestSuccessfulSync(env);
   const minutesSinceSync = latestSyncAt ? (Date.now() - latestSyncAt) / 60_000 : Infinity;
+  const live = await env.DB.prepare(`SELECT id FROM matches WHERE status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') LIMIT 1`).first();
+  if (live) return minutesSinceSync >= 1;
   const soon = new Date(now.getTime() + 2 * 60 * 60_000);
-  const active = await env.DB.prepare(`SELECT id FROM matches WHERE status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') OR (kickoff_at >= ? AND kickoff_at <= ? AND status NOT IN ('finished', 'FINISHED', 'cancelled', 'postponed')) LIMIT 1`).bind(now.toISOString(), soon.toISOString()).first();
-  if (active) return minutesSinceSync >= 2;
+  const upcoming = await env.DB.prepare(`SELECT id FROM matches WHERE kickoff_at >= ? AND kickoff_at <= ? AND status NOT IN ('finished', 'FINISHED', 'cancelled', 'postponed') LIMIT 1`).bind(now.toISOString(), soon.toISOString()).first();
+  if (upcoming) return minutesSinceSync >= 5;
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date(todayStart);

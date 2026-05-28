@@ -16,10 +16,10 @@ type LeaderboardRow = {
 type PredictionRow = {
   user_id: string;
   nickname: string | null;
-  home_score: number;
-  away_score: number;
-  points: number;
-  bonus_used: number;
+  home_score: number | null;
+  away_score: number | null;
+  points: number | null;
+  bonus_used: number | null;
 };
 
 function isLiveStatus(status: string) {
@@ -163,15 +163,16 @@ async function predictionsForMatch(env: Env, leagueId: string, match: MatchRow) 
 
   const liveScore = scoreForLiveMatch(match);
   const rows = await env.DB.prepare(`
-    SELECT predictions.user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points, predictions.bonus_used
-    FROM predictions
-    JOIN users ON users.id = predictions.user_id
-    WHERE predictions.league_id = ? AND predictions.match_id = ?
+    SELECT users.id as user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points, predictions.bonus_used
+    FROM league_members
+    JOIN users ON users.id = league_members.user_id
+    LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id AND predictions.match_id = ?
+    WHERE league_members.league_id = ? AND league_members.removed_at IS NULL
     ORDER BY users.nickname ASC
-  `).bind(leagueId, match.id).all<PredictionRow>();
+  `).bind(match.id, leagueId).all<PredictionRow>();
 
   return (rows.results ?? []).map((prediction) => {
-    const livePoints = liveScore
+    const livePoints = liveScore && prediction.home_score !== null && prediction.away_score !== null
       ? calculatePredictionPoints({
           predictedHome: prediction.home_score,
           predictedAway: prediction.away_score,

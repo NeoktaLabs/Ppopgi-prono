@@ -31,7 +31,7 @@
     }
   ],
   "triggers": {
-    "crons": ["0 5 * * *", "*/15 * * * *"]
+    "crons": ["0 5 * * *", "*/1 * * * *"]
   },
   "vars": {
     "APP_NAME": "Ppopgi Predictions",

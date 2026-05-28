@@ -131,9 +131,9 @@ export async function matchPredictions(request: Request, env: Env, leagueId: str
   if (!match) return badRequest("Match not found.", 404);
   const hasStarted = matchLocksPredictions(match);
   const query = hasStarted
-    ? "SELECT predictions.user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points, predictions.bonus_used FROM predictions JOIN users ON users.id = predictions.user_id WHERE predictions.league_id = ? AND predictions.match_id = ? ORDER BY users.nickname ASC"
+    ? "SELECT users.id as user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points, predictions.bonus_used FROM league_members JOIN users ON users.id = league_members.user_id LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id AND predictions.match_id = ? WHERE league_members.league_id = ? AND league_members.removed_at IS NULL ORDER BY users.nickname ASC"
     : "SELECT predictions.user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points, predictions.bonus_used FROM predictions JOIN users ON users.id = predictions.user_id WHERE predictions.league_id = ? AND predictions.match_id = ? AND predictions.user_id = ? ORDER BY users.nickname ASC";
-  const rows = hasStarted ? await env.DB.prepare(query).bind(leagueId, matchId).all() : await env.DB.prepare(query).bind(leagueId, matchId, user.id).all();
+  const rows = hasStarted ? await env.DB.prepare(query).bind(matchId, leagueId).all() : await env.DB.prepare(query).bind(leagueId, matchId, user.id).all();
   return json({ visibleToAll: hasStarted, predictions: rows.results ?? [] });
 }
 
