@@ -31,6 +31,8 @@ export type MatchRow = {
   external_id: string;
   home_team: string;
   away_team: string;
+  home_team_logo: string | null;
+  away_team_logo: string | null;
   kickoff_at: string;
   stage: string | null;
   group_name: string | null;

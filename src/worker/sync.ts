@@ -8,6 +8,8 @@ type ProviderMatch = {
   externalId: string;
   homeTeam: string;
   awayTeam: string;
+  homeTeamLogo?: string | null;
+  awayTeamLogo?: string | null;
   kickoffAt: string;
   stage?: string | null;
   groupName?: string | null;
@@ -80,11 +82,11 @@ export async function syncWorldCupMatches(env: Env) {
 
   for (const match of matches) {
     await env.DB.prepare(`
-      INSERT INTO matches (id, external_id, home_team, away_team, kickoff_at, stage, group_name, venue, status, live_home_score, live_away_score, live_minute, last_live_synced_at, score_90_home, score_90_away, score_120_home, score_120_away, penalty_home, penalty_away, final_home, final_away, points_multiplier, api_provider, last_synced_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(external_id) DO UPDATE SET home_team = excluded.home_team, away_team = excluded.away_team, kickoff_at = excluded.kickoff_at, stage = excluded.stage, group_name = excluded.group_name, venue = excluded.venue, status = excluded.status, live_home_score = excluded.live_home_score, live_away_score = excluded.live_away_score, live_minute = excluded.live_minute, last_live_synced_at = excluded.last_live_synced_at, score_90_home = excluded.score_90_home, score_90_away = excluded.score_90_away, score_120_home = excluded.score_120_home, score_120_away = excluded.score_120_away, penalty_home = excluded.penalty_home, penalty_away = excluded.penalty_away, final_home = excluded.final_home, final_away = excluded.final_away, points_multiplier = excluded.points_multiplier, api_provider = excluded.api_provider, last_synced_at = excluded.last_synced_at, updated_at = excluded.updated_at
+      INSERT INTO matches (id, external_id, home_team, away_team, home_team_logo, away_team_logo, kickoff_at, stage, group_name, venue, status, live_home_score, live_away_score, live_minute, last_live_synced_at, score_90_home, score_90_away, score_120_home, score_120_away, penalty_home, penalty_away, final_home, final_away, points_multiplier, api_provider, last_synced_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(external_id) DO UPDATE SET home_team = excluded.home_team, away_team = excluded.away_team, home_team_logo = excluded.home_team_logo, away_team_logo = excluded.away_team_logo, kickoff_at = excluded.kickoff_at, stage = excluded.stage, group_name = excluded.group_name, venue = excluded.venue, status = excluded.status, live_home_score = excluded.live_home_score, live_away_score = excluded.live_away_score, live_minute = excluded.live_minute, last_live_synced_at = excluded.last_live_synced_at, score_90_home = excluded.score_90_home, score_90_away = excluded.score_90_away, score_120_home = excluded.score_120_home, score_120_away = excluded.score_120_away, penalty_home = excluded.penalty_home, penalty_away = excluded.penalty_away, final_home = excluded.final_home, final_away = excluded.final_away, points_multiplier = excluded.points_multiplier, api_provider = excluded.api_provider, last_synced_at = excluded.last_synced_at, updated_at = excluded.updated_at
     `).bind(
-      crypto.randomUUID(), match.externalId, match.homeTeam, match.awayTeam, match.kickoffAt, match.stage ?? null, match.groupName ?? null, match.venue ?? null, match.status,
+      crypto.randomUUID(), match.externalId, match.homeTeam, match.awayTeam, match.homeTeamLogo ?? null, match.awayTeamLogo ?? null, match.kickoffAt, match.stage ?? null, match.groupName ?? null, match.venue ?? null, match.status,
       match.liveHomeScore ?? null, match.liveAwayScore ?? null, match.liveMinute ?? null, match.liveHomeScore !== undefined || match.liveAwayScore !== undefined ? nowIso() : null,
       match.score90Home ?? null, match.score90Away ?? null, match.score120Home ?? null, match.score120Away ?? null, match.penaltyHome ?? null, match.penaltyAway ?? null, match.finalHome ?? null, match.finalAway ?? null,
       multiplierForStage(match.stage ?? null), provider, nowIso(), nowIso(), nowIso(),
@@ -127,6 +129,8 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
       externalId: String(fixture.id),
       homeTeam: teams.home?.name ?? "TBD",
       awayTeam: teams.away?.name ?? "TBD",
+      homeTeamLogo: teams.home?.logo ?? null,
+      awayTeamLogo: teams.away?.logo ?? null,
       kickoffAt: fixture.date,
       stage: leagueData.round ?? null,
       groupName: null,
