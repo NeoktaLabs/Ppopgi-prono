@@ -83,3 +83,11 @@ body{background:radial-gradient(circle at 8% 8%,rgba(255,181,181,.48),transparen
   margin-top: 10px;
   font-size: 0.9rem;
 }
+
+.language-toggle{display:inline-flex;align-items:center;gap:.28rem;padding:.22rem;border-radius:999px;background:rgba(255,255,255,.86);border:1px solid rgba(23,59,120,.12);box-shadow:0 10px 22px rgba(50,89,139,.08)}
+.language-toggle button{display:grid;place-items:center;width:2.1rem;height:2.1rem;padding:.18rem;border-radius:999px;background:transparent;box-shadow:none;border:1px solid transparent;overflow:hidden}
+.language-toggle button.active{background:#fff;border-color:rgba(23,59,120,.18);box-shadow:0 6px 14px rgba(23,59,120,.12)}
+.language-toggle img{width:1.45rem;height:1.45rem;display:block;object-fit:cover;border-radius:999px;box-shadow:0 0 0 1px rgba(23,59,120,.12)}
+.header-actions{justify-self:end;align-items:flex-start}
+.auth-topbar .language-toggle,.auth-page-simple .language-toggle{margin-left:auto}
+@media(max-width:900px){.header-actions{flex-direction:row;align-items:center}.header-actions .language-toggle{order:2}.header-actions .ghost{order:1}.language-toggle button{width:2rem;height:2rem}.language-toggle img{width:1.36rem;height:1.36rem}}
