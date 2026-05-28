@@ -5,7 +5,7 @@ Mobile and Desktop World Cup prediction web app.
 ## Stack
 
 - React + Vite
-- Cloudflare Workers (variables stored in wrangler config file)
+- Cloudflare Workers (variables stored in wrangler.jsonc config file)
 - Cloudflare D1
 - Cloudflare Cron Triggers
 - Cloudflare Email Service / email binding
