@@ -207,7 +207,10 @@ export async function leagueHome(request: Request, env: Env, leagueId: string) {
   todayEnd.setDate(todayEnd.getDate() + 1);
 
   const todayRows = await env.DB.prepare(`
-    SELECT * FROM matches WHERE kickoff_at >= ? AND kickoff_at < ? ORDER BY kickoff_at ASC
+    SELECT * FROM matches
+    WHERE (kickoff_at >= ? AND kickoff_at < ?)
+      OR status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time')
+    ORDER BY kickoff_at ASC
   `).bind(todayStart.toISOString(), todayEnd.toISOString()).all<MatchRow>();
 
   const matches = await Promise.all((todayRows.results ?? []).map(async (match) => ({
