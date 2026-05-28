@@ -15,6 +15,7 @@ import {
   upsertPrediction,
 } from "./api";
 import {
+  getLeagueSettings,
   regenerateLeagueCode,
   transferLeagueAdmin,
   updateLeagueSettings,
@@ -54,6 +55,7 @@ async function handleApi(request: Request, env: Env) {
   if (request.method === "GET" && leagueHomeParams) return leagueHome(request, env, leagueHomeParams[0]);
 
   const leagueSettingsParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/settings$/);
+  if (request.method === "GET" && leagueSettingsParams) return getLeagueSettings(request, env, leagueSettingsParams[0]);
   if (request.method === "PATCH" && leagueSettingsParams) return updateLeagueSettings(request, env, leagueSettingsParams[0]);
 
   const regenerateCodeParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/regenerate-code$/);

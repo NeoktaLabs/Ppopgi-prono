@@ -57,6 +57,26 @@ export async function updateLeagueSettings(request: Request, env: Env, leagueId:
   return json({ ok: true });
 }
 
+export async function getLeagueSettings(request: Request, env: Env, leagueId: string) {
+  const admin = await requireLeagueAdmin(request, env, leagueId);
+  if (admin.error) return admin.error;
+
+  const league = await env.DB.prepare("SELECT id, name, code, admin_user_id, is_joinable FROM leagues WHERE id = ?")
+    .bind(leagueId)
+    .first();
+  if (!league) return badRequest("League not found.", 404);
+
+  const members = await env.DB.prepare(`
+    SELECT users.id, users.nickname, users.email, league_members.role, league_members.joined_at
+    FROM league_members
+    JOIN users ON users.id = league_members.user_id
+    WHERE league_members.league_id = ? AND league_members.removed_at IS NULL
+    ORDER BY league_members.role = 'admin' DESC, users.nickname ASC
+  `).bind(leagueId).all();
+
+  return json({ league, members: members.results ?? [] });
+}
+
 export async function regenerateLeagueCode(request: Request, env: Env, leagueId: string) {
   const admin = await requireLeagueAdmin(request, env, leagueId);
   if (admin.error) return admin.error;
