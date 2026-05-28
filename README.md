@@ -1,6 +1,6 @@
 # Ppopgi Prono
 
-Mobile-first World Cup prediction web app.
+Mobile and Desktop World Cup prediction web app.
 
 ## Stack
 
@@ -47,15 +47,6 @@ npm run db:migrate:local
 
 Regular users can manage their profile, join leagues, create leagues, and submit predictions.
 
-League admins are restricted to league-scoped actions only:
-
-```http
-PATCH /api/leagues/:leagueId/settings
-POST /api/leagues/:leagueId/regenerate-code
-POST /api/leagues/:leagueId/transfer-admin
-DELETE /api/leagues/:leagueId/members/:userId
-```
-
 League admins cannot edit fixtures, scores, sync jobs, point rules, or global recalculation.
 
 Global admins manage tournament-wide data only. Global admin access is controlled by `GLOBAL_ADMIN_EMAILS` in `wrangler.jsonc` or your Cloudflare environment variables.
@@ -64,34 +55,12 @@ Global admins manage tournament-wide data only. Global admin access is controlle
 
 Match results are global for the whole app. Editing a score or recalculating points applies to every league, because all leagues use the same World Cup matches and results.
 
-API scores remain the default source. A global admin can override a match score to speed up scoring or correct an API issue:
+API scores remain the default source. A global admin can override a match score to speed up scoring or correct an API issue
 
-```http
-POST /api/admin/matches/:matchId/manual-score
-Content-Type: application/json
-
-{ "homeScore": 2, "awayScore": 1 }
-```
-
-Manual override always wins for point calculation. To remove the override and return to the API score:
-
-```http
-DELETE /api/admin/matches/:matchId/manual-score
-```
+Manual override always wins for point calculation. 
 
 Both actions recalculate predictions for the match immediately across all leagues.
 
-To force recalculation for one match:
-
-```http
-POST /api/admin/matches/:matchId/recalculate
-```
-
-To force recalculation for every match and every league:
-
-```http
-POST /api/admin/recalculate
-```
 
 ## Notes
 
