@@ -23,6 +23,7 @@ import {
   clearGlobalManualScore,
   recalculateAllGlobalScores,
   recalculateGlobalMatch,
+  requireGlobalAdmin,
   setGlobalManualScore,
 } from "./global-admin";
 import { leagueHome } from "./live";
@@ -100,6 +101,9 @@ async function handleApi(request: Request, env: Env) {
     }
 
     if (request.method === "POST") {
+      const admin = await requireGlobalAdmin(request, env);
+      if (admin.error) return admin.error;
+
       await syncWorldCupMatches(env);
       return json({ ok: true });
     }

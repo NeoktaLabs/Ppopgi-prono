@@ -10,7 +10,7 @@ function adminEmails(env: Env) {
     .filter(Boolean);
 }
 
-async function requireGlobalAdmin(request: Request, env: Env) {
+export async function requireGlobalAdmin(request: Request, env: Env) {
   const user = await requireUser(request, env);
   if (!user) return { error: badRequest("Not authenticated.", 401), user: null };
 
