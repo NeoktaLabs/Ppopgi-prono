@@ -72,6 +72,10 @@ function withEffectiveScore(match: MatchRow) {
   return { ...match, effective_final_home: score?.home ?? null, effective_final_away: score?.away ?? null, effective_score_source: score?.source ?? "none" };
 }
 
+function matchLocksPredictions(match: MatchRow) {
+  return Date.now() >= new Date(match.kickoff_at).getTime() || usableFinalScore(match) !== null;
+}
+
 export async function listMatches(env: Env) {
   const rows = await env.DB.prepare("SELECT * FROM matches ORDER BY kickoff_at ASC").all<MatchRow>();
   return json({ matches: (rows.results ?? []).map(withEffectiveScore) });
@@ -110,7 +114,7 @@ export async function upsertPrediction(request: Request, env: Env, leagueId: str
   if (!membership) return badRequest("You are not a member of this league.", 403);
   const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(body.matchId).first<MatchRow>();
   if (!match) return badRequest("Match not found.", 404);
-  if (Date.now() >= new Date(match.kickoff_at).getTime()) return badRequest("Kickoff has passed, this prediction is locked.", 409);
+  if (matchLocksPredictions(match)) return badRequest("This match is locked because kickoff has passed or a final score has been set.", 409);
   await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(league_id, user_id, match_id) DO UPDATE SET home_score = excluded.home_score, away_score = excluded.away_score, updated_at = excluded.updated_at`).bind(crypto.randomUUID(), leagueId, user.id, body.matchId, homeScore, awayScore, nowIso(), nowIso()).run();
   return json({ ok: true });
 }
@@ -120,7 +124,7 @@ export async function matchPredictions(request: Request, env: Env, leagueId: str
   if (!user) return badRequest("Not authenticated.", 401);
   const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(matchId).first<MatchRow>();
   if (!match) return badRequest("Match not found.", 404);
-  const hasStarted = Date.now() >= new Date(match.kickoff_at).getTime();
+  const hasStarted = matchLocksPredictions(match);
   const query = hasStarted
     ? "SELECT users.nickname, predictions.home_score, predictions.away_score, predictions.points FROM predictions JOIN users ON users.id = predictions.user_id WHERE predictions.league_id = ? AND predictions.match_id = ? ORDER BY users.nickname ASC"
     : "SELECT users.nickname, predictions.home_score, predictions.away_score, predictions.points FROM predictions JOIN users ON users.id = predictions.user_id WHERE predictions.league_id = ? AND predictions.match_id = ? AND predictions.user_id = ? ORDER BY users.nickname ASC";
