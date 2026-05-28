@@ -52,12 +52,12 @@ export function multiplierForStage(stage: string | null) {
   if (!normalized) return 1;
   if (normalized.includes("group")) return 1;
 
-  if (normalized.includes("third") || normalized.includes("3rd") || normalized.includes("bronze")) return 5;
-  if (normalized.includes("final") && !normalized.includes("semi")) return 10;
-  if (normalized.includes("semi")) return 5;
-  if (normalized.includes("quarter")) return 4;
   if (normalized.includes("last_32") || normalized.includes("round of 32") || normalized.includes("1/16")) return 2;
   if (normalized.includes("last_16") || normalized.includes("round of 16") || normalized.includes("huit") || normalized.includes("1/8")) return 3;
+  if (normalized.includes("quarter")) return 4;
+  if (normalized.includes("semi")) return 5;
+  if (normalized.includes("third") || normalized.includes("3rd") || normalized.includes("bronze")) return 5;
+  if (normalized === "final") return 10;
 
   return 1;
 }
