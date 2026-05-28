@@ -9,6 +9,7 @@ type LeaderboardRow = {
   exact_scores: number;
   correct_results: number;
   predictions_count: number;
+  bonuses_remaining: number;
   rank: number;
 };
 
@@ -18,6 +19,7 @@ type PredictionRow = {
   home_score: number;
   away_score: number;
   points: number;
+  bonus_used: number;
 };
 
 function isLiveStatus(status: string) {
@@ -44,7 +46,8 @@ async function officialLeaderboard(env: Env, leagueId: string): Promise<Leaderbo
       COALESCE(SUM(predictions.points), 0) as points,
       COALESCE(SUM(predictions.is_exact), 0) as exact_scores,
       COALESCE(SUM(predictions.is_correct_result), 0) as correct_results,
-      COUNT(predictions.id) as predictions_count
+      COUNT(predictions.id) as predictions_count,
+      2 - COALESCE(SUM(predictions.bonus_used), 0) as bonuses_remaining
     FROM league_members
     JOIN users ON users.id = league_members.user_id
     LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id
@@ -58,6 +61,7 @@ async function officialLeaderboard(env: Env, leagueId: string): Promise<Leaderbo
     exact_scores: Number(row.exact_scores),
     correct_results: Number(row.correct_results),
     predictions_count: Number(row.predictions_count),
+    bonuses_remaining: Number(row.bonuses_remaining),
   })));
 }
 
@@ -85,10 +89,10 @@ async function provisionalLiveLeaderboard(env: Env, leagueId: string, official: 
     if (!liveScore) continue;
 
     const rows = await env.DB.prepare(`
-      SELECT user_id, home_score, away_score
+      SELECT user_id, home_score, away_score, bonus_used
       FROM predictions
       WHERE league_id = ? AND match_id = ?
-    `).bind(leagueId, match.id).all<{ user_id: string; home_score: number; away_score: number }>();
+    `).bind(leagueId, match.id).all<{ user_id: string; home_score: number; away_score: number; bonus_used: number }>();
 
     for (const prediction of rows.results ?? []) {
       const current = totals.get(prediction.user_id);
@@ -99,6 +103,7 @@ async function provisionalLiveLeaderboard(env: Env, leagueId: string, official: 
         finalHome: liveScore.home,
         finalAway: liveScore.away,
         multiplier: match.points_multiplier,
+        bonusMultiplier: prediction.bonus_used ? 5 : 1,
       });
 
       current.points += points.points;
@@ -158,7 +163,7 @@ async function predictionsForMatch(env: Env, leagueId: string, match: MatchRow) 
 
   const liveScore = scoreForLiveMatch(match);
   const rows = await env.DB.prepare(`
-    SELECT predictions.user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points
+    SELECT predictions.user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points, predictions.bonus_used
     FROM predictions
     JOIN users ON users.id = predictions.user_id
     WHERE predictions.league_id = ? AND predictions.match_id = ?
@@ -173,6 +178,7 @@ async function predictionsForMatch(env: Env, leagueId: string, match: MatchRow) 
           finalHome: liveScore.home,
           finalAway: liveScore.away,
           multiplier: match.points_multiplier,
+          bonusMultiplier: prediction.bonus_used ? 5 : 1,
         }).points
       : prediction.points;
 

@@ -32,13 +32,14 @@ export function calculatePredictionPoints(args: {
   finalHome: number;
   finalAway: number;
   multiplier: number;
+  bonusMultiplier?: number;
 }) {
   const exact = args.predictedHome === args.finalHome && args.predictedAway === args.finalAway;
   const correctResult = resultOf(args.predictedHome, args.predictedAway) === resultOf(args.finalHome, args.finalAway);
   const basePoints = exact ? 5 : correctResult ? 3 : 0;
 
   return {
-    points: basePoints * args.multiplier,
+    points: basePoints * args.multiplier * (args.bonusMultiplier ?? 1),
     isExact: exact,
     isCorrectResult: correctResult,
     basePoints,

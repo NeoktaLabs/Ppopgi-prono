@@ -8,7 +8,7 @@ export const messages = {
   leagueCodeRequired: "League code is required.",
   leagueNotFound: "League not found.",
   leagueClosed: "This league is closed to new members.",
-  nicknameLength: "Nickname must be between 2 and 30 characters.",
+  nicknameLength: "Nickname must be between 2 and 12 characters.",
   predictionIncomplete: "Prediction is incomplete.",
   notLeagueMember: "You are not a member of this league.",
   matchNotFound: "Match not found.",
