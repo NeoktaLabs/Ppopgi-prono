@@ -1,6 +1,6 @@
 import type { Env, MatchRow } from "./types";
 import { badRequest, json, requireUser } from "./utils";
-import { calculatePredictionPoints, usableFinalScore } from "./scoring";
+import { calculatePredictionPoints, multiplierForStage, usableFinalScore } from "./scoring";
 
 type LeaderboardRow = {
   user_id: string;
@@ -24,6 +24,10 @@ type PredictionRow = {
 
 function isLiveStatus(status: string) {
   return ["live", "in_play", "1h", "2h", "ht", "et", "penalties", "extra_time"].includes(status.toLowerCase());
+}
+
+function withCorrectMultiplier(match: MatchRow): MatchRow {
+  return { ...match, points_multiplier: multiplierForStage(match.stage) };
 }
 
 function rankRows(rows: Omit<LeaderboardRow, "rank">[]): LeaderboardRow[] {
@@ -71,7 +75,7 @@ async function liveMatches(env: Env): Promise<MatchRow[]> {
     WHERE status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time')
     ORDER BY kickoff_at ASC
   `).all<MatchRow>();
-  return rows.results ?? [];
+  return (rows.results ?? []).map(withCorrectMultiplier);
 }
 
 function scoreForLiveMatch(match: MatchRow) {
@@ -214,7 +218,7 @@ export async function leagueHome(request: Request, env: Env, leagueId: string) {
     ORDER BY kickoff_at ASC
   `).bind(todayStart.toISOString(), todayEnd.toISOString()).all<MatchRow>();
 
-  const matches = await Promise.all((todayRows.results ?? []).map(async (match) => ({
+  const matches = await Promise.all((todayRows.results ?? []).map(withCorrectMultiplier).map(async (match) => ({
     ...match,
     is_live: isLiveStatus(match.status),
     effective_home_score: scoreForLiveMatch(match)?.home ?? null,

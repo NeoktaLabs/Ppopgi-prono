@@ -1,6 +1,6 @@
 import type { Env, MatchRow } from "./types";
 import { badRequest, json, nowIso, randomCode, readJson, requireUser } from "./utils";
-import { calculatePredictionPoints, usableFinalScore } from "./scoring";
+import { calculatePredictionPoints, multiplierForStage, usableFinalScore } from "./scoring";
 
 function isGlobalAdmin(env: Env, email: string) {
   return (env.GLOBAL_ADMIN_EMAILS ?? "")
@@ -69,7 +69,18 @@ export async function leaderboard(request: Request, env: Env, leagueId: string) 
 
 function withEffectiveScore(match: MatchRow) {
   const score = usableFinalScore(match);
-  return { ...match, effective_final_home: score?.home ?? null, effective_final_away: score?.away ?? null, effective_score_source: score?.source ?? "none" };
+  return { ...match, points_multiplier: multiplierForStage(match.stage), effective_final_home: score?.home ?? null, effective_final_away: score?.away ?? null, effective_score_source: score?.source ?? "none" };
+}
+
+async function repairMatchMultipliers(env: Env, rows: MatchRow[]) {
+  for (const match of rows) {
+    const multiplier = multiplierForStage(match.stage);
+    if (multiplier !== match.points_multiplier) {
+      await env.DB.prepare("UPDATE matches SET points_multiplier = ?, updated_at = ? WHERE id = ?").bind(multiplier, nowIso(), match.id).run();
+      await recalculateMatch(env, match.id);
+      match.points_multiplier = multiplier;
+    }
+  }
 }
 
 function matchLocksPredictions(match: MatchRow) {
@@ -78,7 +89,9 @@ function matchLocksPredictions(match: MatchRow) {
 
 export async function listMatches(env: Env) {
   const rows = await env.DB.prepare("SELECT * FROM matches ORDER BY kickoff_at ASC").all<MatchRow>();
-  return json({ matches: (rows.results ?? []).map(withEffectiveScore) });
+  const matches = rows.results ?? [];
+  await repairMatchMultipliers(env, matches);
+  return json({ matches: matches.map(withEffectiveScore) });
 }
 
 export async function todayMatches(env: Env) {
@@ -87,7 +100,9 @@ export async function todayMatches(env: Env) {
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
   const rows = await env.DB.prepare("SELECT * FROM matches WHERE kickoff_at >= ? AND kickoff_at < ? ORDER BY kickoff_at ASC").bind(start.toISOString(), end.toISOString()).all<MatchRow>();
-  return json({ matches: (rows.results ?? []).map(withEffectiveScore) });
+  const matches = rows.results ?? [];
+  await repairMatchMultipliers(env, matches);
+  return json({ matches: matches.map(withEffectiveScore) });
 }
 
 export async function myPredictions(request: Request, env: Env, leagueId: string) {
