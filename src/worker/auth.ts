@@ -6,8 +6,14 @@ type MagicLinkRequest = {
   turnstileToken?: string;
 };
 
+function hasGatewayCookie(request: Request) {
+  const cookie = request.headers.get("Cookie") ?? "";
+  return cookie.split(";").some((part) => part.trim() === "turnstile_gateway=1");
+}
+
 async function verifyTurnstile(request: Request, env: Env, token?: string) {
   if (!env.TURNSTILE_SECRET_KEY) return true;
+  if (hasGatewayCookie(request)) return true;
   if (!token) return false;
 
   const formData = new FormData();
@@ -24,6 +30,19 @@ async function verifyTurnstile(request: Request, env: Env, token?: string) {
   return result.success === true;
 }
 
+
+export async function verifyGatewayTurnstile(request: Request, env: Env) {
+  const { turnstileToken } = await readJson<MagicLinkRequest>(request);
+  if (!(await verifyTurnstile(request, env, turnstileToken))) {
+    return json({ error: "Captcha verification failed." }, { status: 403 });
+  }
+
+  return json({ ok: true }, {
+    headers: {
+      "Set-Cookie": "turnstile_gateway=1; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax",
+    },
+  });
+}
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }

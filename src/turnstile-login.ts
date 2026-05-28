@@ -1,3 +1,5 @@
+const TURNSTILE_PASSED_KEY = "turnstileGatewayPassed";
+
 type TurnstileApi = {
   render: (
     container: HTMLElement,
@@ -9,33 +11,33 @@ type TurnstileApi = {
       appearance?: "always" | "execute" | "interaction-only";
     },
   ) => string;
-  reset: (widgetId?: string) => void;
 };
 
 type AppWindow = Window & {
   turnstile?: TurnstileApi;
 };
 
-let turnstileToken: string | null = null;
-let turnstileWidgetId: string | null = null;
 let siteKeyCache: string | null = null;
-let scriptLoading = false;
-let fetchPatched = false;
-let renderRequested = false;
-let tokenResolver: ((token: string | null) => void) | null = null;
 
 async function getTurnstileSiteKey() {
   if (siteKeyCache) return siteKeyCache;
   const response = await fetch("/api/config", { credentials: "include" });
   if (!response.ok) return null;
-  const config = await response.json().catch(() => ({})) as { turnstileSiteKey?: string | null };
+  const config = (await response.json().catch(() => ({}))) as { turnstileSiteKey?: string | null };
   siteKeyCache = config.turnstileSiteKey || null;
   return siteKeyCache;
 }
 
+function hasPassedGateway() {
+  return localStorage.getItem(TURNSTILE_PASSED_KEY) === "1";
+}
+
+function markGatewayPassed() {
+  localStorage.setItem(TURNSTILE_PASSED_KEY, "1");
+}
+
 function loadTurnstileScript() {
-  if (scriptLoading || document.querySelector("script[data-turnstile-api]")) return;
-  scriptLoading = true;
+  if (document.querySelector("script[data-turnstile-api]")) return;
   const script = document.createElement("script");
   script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
   script.async = true;
@@ -44,143 +46,64 @@ function loadTurnstileScript() {
   document.head.appendChild(script);
 }
 
-function findLoginFormRow() {
-  const emailInput = document.querySelector('input[type="email"]');
-  if (!emailInput) return null;
-  return emailInput.closest(".form-row") ?? emailInput.parentElement;
+function createGatewayUi() {
+  const overlay = document.createElement("div");
+  overlay.className = "turnstile-gateway";
+  overlay.innerHTML = `<div class="turnstile-gateway-card"><h2>Security check</h2><p>Please verify once to enter Ppopgi Prono.</p><div data-turnstile-gateway></div><p class="turnstile-gateway-error" hidden>Verification failed. Please try again.</p></div>`;
+  document.body.appendChild(overlay);
+  return overlay;
 }
 
-function getEmailInput() {
-  return document.querySelector<HTMLInputElement>('input[type="email"]');
-}
-
-function hasReasonableEmail() {
-  const value = getEmailInput()?.value.trim() ?? "";
-  return value.length > 3 && value.includes("@");
-}
-
-function resolveToken(token: string | null) {
-  if (!tokenResolver) return;
-  tokenResolver(token);
-  tokenResolver = null;
-}
-
-function resetTurnstile() {
-  const appWindow = window as AppWindow;
-  turnstileToken = null;
-  if (appWindow.turnstile && turnstileWidgetId) {
-    appWindow.turnstile.reset(turnstileWidgetId);
-  }
-}
-
-function renderTurnstile(siteKey: string) {
-  const appWindow = window as AppWindow;
-  const row = findLoginFormRow();
-  if (!row || !appWindow.turnstile || document.querySelector("[data-turnstile-login]")) return false;
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "turnstile-login-wrap";
-  const container = document.createElement("div");
-  container.setAttribute("data-turnstile-login", "true");
-  container.className = "turnstile-login";
-  wrapper.appendChild(container);
-  row.insertAdjacentElement("afterend", wrapper);
-
-  turnstileWidgetId = appWindow.turnstile.render(container, {
-    sitekey: siteKey,
-    appearance: "always",
-    callback: (token) => {
-      turnstileToken = token;
-      resolveToken(token);
-    },
-    "expired-callback": () => {
-      turnstileToken = null;
-    },
-    "error-callback": () => {
-      turnstileToken = null;
-      resolveToken(null);
-    },
+async function verifyGatewayToken(token: string) {
+  const response = await fetch("/api/turnstile/gateway-verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ turnstileToken: token }),
   });
-  return true;
-}
-
-async function ensureTurnstileRendered() {
-  if (!hasReasonableEmail()) return false;
-  if (document.querySelector("[data-turnstile-login]")) return true;
-
-  renderRequested = true;
-  const siteKey = await getTurnstileSiteKey();
-  if (!siteKey) return false;
-
-  loadTurnstileScript();
-  return await new Promise<boolean>((resolve) => {
-    const interval = window.setInterval(() => {
-      if (renderTurnstile(siteKey)) {
-        window.clearInterval(interval);
-        resolve(true);
-      }
-    }, 150);
-    window.setTimeout(() => {
-      window.clearInterval(interval);
-      resolve(false);
-    }, 6000);
-  });
-}
-
-async function waitForTurnstileToken() {
-  if (turnstileToken) return turnstileToken;
-  const rendered = await ensureTurnstileRendered();
-  if (!rendered) return null;
-  if (turnstileToken) return turnstileToken;
-  return await new Promise<string | null>((resolve) => {
-    tokenResolver = resolve;
-    window.setTimeout(() => resolveToken(null), 12000);
-  });
-}
-
-function watchEmailIntent() {
-  const interval = window.setInterval(() => {
-    const input = getEmailInput();
-    if (!input) return;
-    window.clearInterval(interval);
-    input.addEventListener("input", () => {
-      if (!renderRequested) void ensureTurnstileRendered();
-    });
-  }, 250);
-  window.setTimeout(() => window.clearInterval(interval), 10000);
-}
-
-function patchFetch() {
-  if (fetchPatched) return;
-  fetchPatched = true;
-  const originalFetch = window.fetch.bind(window);
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    const isMagicLinkRequest = url.includes("/api/auth/request-link");
-
-    if (isMagicLinkRequest && !turnstileToken) {
-      await waitForTurnstileToken();
-    }
-
-    if (isMagicLinkRequest && init?.body && turnstileToken) {
-      try {
-        const body = JSON.parse(String(init.body));
-        init = {
-          ...init,
-          body: JSON.stringify({ ...body, turnstileToken }),
-        };
-      } catch {
-        // Leave the request unchanged if the body is not JSON.
-      }
-    }
-
-    const response = await originalFetch(input, init);
-    if (isMagicLinkRequest) resetTurnstile();
-    return response;
-  };
+  if (!response.ok) throw new Error("Gateway verification failed");
 }
 
 export async function initTurnstileLogin() {
-  patchFetch();
-  watchEmailIntent();
+  if (hasPassedGateway()) return;
+
+  const siteKey = await getTurnstileSiteKey();
+  if (!siteKey) return;
+
+  const overlay = createGatewayUi();
+  const errorNode = overlay.querySelector<HTMLElement>(".turnstile-gateway-error");
+  const container = overlay.querySelector<HTMLElement>("[data-turnstile-gateway]");
+  if (!container) return;
+
+  loadTurnstileScript();
+  const appWindow = window as AppWindow;
+
+  await new Promise<void>((resolve) => {
+    const interval = window.setInterval(() => {
+      if (!appWindow.turnstile) return;
+      window.clearInterval(interval);
+      appWindow.turnstile.render(container, {
+        sitekey: siteKey,
+        appearance: "always",
+        callback: (token) => {
+          void (async () => {
+            try {
+              await verifyGatewayToken(token);
+              markGatewayPassed();
+              overlay.remove();
+              resolve();
+            } catch {
+              if (errorNode) errorNode.hidden = false;
+            }
+          })();
+        },
+        "expired-callback": () => {
+          if (errorNode) errorNode.hidden = false;
+        },
+        "error-callback": () => {
+          if (errorNode) errorNode.hidden = false;
+        },
+      });
+    }, 150);
+  });
 }
