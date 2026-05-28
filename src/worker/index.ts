@@ -22,6 +22,8 @@ import {
 } from "./league-admin";
 import {
   clearGlobalManualScore,
+  deleteGlobalLeague,
+  listGlobalLeagues,
   recalculateAllGlobalScores,
   recalculateGlobalMatch,
   requireGlobalAdmin,
@@ -92,6 +94,11 @@ async function handleApi(request: Request, env: Env) {
   if (request.method === "POST" && globalRecalculateMatchParams) return recalculateGlobalMatch(request, env, globalRecalculateMatchParams[0]);
 
   if (request.method === "POST" && pathname === "/api/admin/recalculate") return recalculateAllGlobalScores(request, env);
+
+  if (request.method === "GET" && pathname === "/api/admin/leagues") return listGlobalLeagues(request, env);
+
+  const globalLeagueParams = routeParams(pathname, /^\/api\/admin\/leagues\/([^/]+)$/);
+  if (request.method === "DELETE" && globalLeagueParams) return deleteGlobalLeague(request, env, globalLeagueParams[0]);
 
   if (pathname === "/api/admin/sync/matches") {
     if (request.method === "GET") {

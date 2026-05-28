@@ -104,3 +104,44 @@ export async function recalculateAllGlobalScores(request: Request, env: Env) {
 
   return json({ ok: true, scope: "global", recalculated });
 }
+
+export async function listGlobalLeagues(request: Request, env: Env) {
+  const admin = await requireGlobalAdmin(request, env);
+  if (admin.error) return admin.error;
+
+  const rows = await env.DB.prepare(`
+    SELECT
+      leagues.id,
+      leagues.name,
+      leagues.code,
+      leagues.is_joinable,
+      leagues.created_at,
+      users.email as admin_email,
+      users.nickname as admin_nickname,
+      COUNT(league_members.id) as member_count
+    FROM leagues
+    LEFT JOIN users ON users.id = leagues.admin_user_id
+    LEFT JOIN league_members ON league_members.league_id = leagues.id AND league_members.removed_at IS NULL
+    GROUP BY leagues.id
+    ORDER BY leagues.created_at DESC
+  `).all();
+
+  return json({ leagues: rows.results ?? [] });
+}
+
+export async function deleteGlobalLeague(request: Request, env: Env, leagueId: string) {
+  const admin = await requireGlobalAdmin(request, env);
+  if (admin.error) return admin.error;
+
+  const league = await env.DB.prepare("SELECT id FROM leagues WHERE id = ?").bind(leagueId).first();
+  if (!league) return badRequest("League not found.", 404);
+
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM leaderboard_snapshots WHERE league_id = ?").bind(leagueId),
+    env.DB.prepare("DELETE FROM predictions WHERE league_id = ?").bind(leagueId),
+    env.DB.prepare("DELETE FROM league_members WHERE league_id = ?").bind(leagueId),
+    env.DB.prepare("DELETE FROM leagues WHERE id = ?").bind(leagueId),
+  ]);
+
+  return json({ ok: true });
+}
