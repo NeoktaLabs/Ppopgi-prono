@@ -158,7 +158,7 @@ async function withLastMatchDeltas(env: Env, leagueId: string, official: Leaderb
 }
 
 async function predictionsForMatch(env: Env, leagueId: string, match: MatchRow) {
-  const hasStarted = Date.now() >= new Date(match.kickoff_at).getTime();
+  const hasStarted = isLiveStatus(match.status) || Date.now() >= new Date(match.kickoff_at).getTime() || usableFinalScore(match) !== null;
   if (!hasStarted) return [];
 
   const liveScore = scoreForLiveMatch(match);

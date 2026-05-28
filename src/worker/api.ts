@@ -73,7 +73,7 @@ function withEffectiveScore(match: MatchRow) {
 }
 
 function matchLocksPredictions(match: MatchRow) {
-  return Date.now() >= new Date(match.kickoff_at).getTime() || usableFinalScore(match) !== null;
+  return ["live", "in_play", "1h", "2h", "ht", "et", "penalties", "extra_time"].includes(match.status.toLowerCase()) || Date.now() >= new Date(match.kickoff_at).getTime() || usableFinalScore(match) !== null;
 }
 
 export async function listMatches(env: Env) {
