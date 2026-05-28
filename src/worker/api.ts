@@ -152,7 +152,10 @@ export async function recalculateMatch(env: Env, matchId: string) {
   const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(matchId).first<MatchRow>();
   if (!match) return;
   const finalScore = usableFinalScore(match);
-  if (!finalScore) return;
+  if (!finalScore) {
+    await env.DB.prepare("UPDATE predictions SET points = 0, is_exact = 0, is_correct_result = 0, updated_at = ? WHERE match_id = ?").bind(nowIso(), matchId).run();
+    return;
+  }
   const predictions = await env.DB.prepare("SELECT id, home_score, away_score, bonus_used FROM predictions WHERE match_id = ?").bind(matchId).all<{ id: string; home_score: number; away_score: number; bonus_used: number }>();
   for (const prediction of predictions.results ?? []) {
     const score = calculatePredictionPoints({ predictedHome: prediction.home_score, predictedAway: prediction.away_score, finalHome: finalScore.home, finalAway: finalScore.away, multiplier: match.points_multiplier, bonusMultiplier: prediction.bonus_used ? 5 : 1 });
