@@ -48,6 +48,6 @@
     "EMAIL_FROM_NAME": "Oddzz Auth",
     "EMAIL_REPLY_TO": "do-not-reply@oddzz.xyz",
     "TURNSTILE_SITE_KEY": "0x4AAAAAADXGbNGDwM2GQXFb",
-    "DEV_AUTH_BYPASS": "1"
+    "DEV_AUTH_BYPASS": "0"
   }
 }
