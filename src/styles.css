@@ -132,3 +132,26 @@ body{background:radial-gradient(circle at 8% 8%,rgba(255,181,181,.48),transparen
   .leaderboard-row strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .movement{min-width:2.1rem;padding:.16rem .26rem;font-size:.62rem}
 }
+
+.icon-button{display:inline-grid;place-items:center;line-height:1}
+.profile-glyph{display:grid;place-items:center;width:1em;height:1em;line-height:1;transform:translateY(-.02em)}
+.app-footer{display:grid;justify-items:center;gap:.22rem;margin:2rem auto .4rem;text-align:center;color:#53627a;font-size:.84rem;font-weight:750}
+.app-footer p{margin:0}.app-footer strong{color:#12203f}.trademark-note{font-size:.72rem;opacity:.78}
+.donate-button{display:inline-flex;align-items:center;justify-content:center;margin-top:.45rem;padding:.52rem .9rem;border-radius:999px;background:linear-gradient(135deg,#173b78,#4c83d8 58%,#d8a52f);color:#fff;text-decoration:none;font-weight:950;box-shadow:0 12px 24px rgba(23,59,120,.14)}
+@media(max-width:900px){
+  .leaderboard-panel{padding:.72rem}
+  .leaderboard-panel .section-title{align-items:flex-start}
+  .leaderboard-panel .section-title p{font-size:.88rem;line-height:1.18}
+  .leaderboard-table{overflow:visible}
+  .leaderboard-table .leaderboard-row{grid-template-columns:1.75rem minmax(0,1fr) 2.15rem 2.25rem 3.1rem 1.9rem!important;gap:.16rem;padding:.48rem .34rem}
+  .leaderboard-row{border-radius:16px}
+  .leaderboard-head{font-size:.43rem;letter-spacing:.01em;line-height:1;white-space:nowrap}
+  .leaderboard-head span:nth-child(2){text-align:left}
+  .leaderboard-row .rank{font-size:.95rem;white-space:nowrap}
+  .leaderboard-row strong{font-size:.96rem;min-width:0}
+  .leaderboard-row:not(.leaderboard-head)>span:nth-child(n+3):not(.movement){font-size:.94rem;white-space:nowrap}
+  .leaderboard-row:not(.leaderboard-head)>span:nth-child(5){font-size:.84rem}
+  .movement{min-width:1.65rem;padding:.12rem .2rem;font-size:.58rem;gap:.06rem;border-radius:999px}
+  .app-footer{font-size:.78rem;margin-top:1.4rem}
+  .trademark-note{font-size:.66rem}
+}

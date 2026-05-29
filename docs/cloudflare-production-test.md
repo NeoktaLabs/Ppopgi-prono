@@ -40,7 +40,7 @@ Update:
 ```json
 "APP_URL": "https://YOUR_DEPLOYED_DOMAIN",
 "GLOBAL_ADMIN_EMAILS": "your-email@example.com",
-"EMAIL_FROM": "Ppopgi Prono <no-reply@your-domain.com>",
+"EMAIL_FROM": "Predikt <no-reply@your-domain.com>",
 "EMAIL_REPLY_TO": "your-email@example.com"
 ```
 

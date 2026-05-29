@@ -1,4 +1,4 @@
-# Ppopgi Prono
+# Predikt
 
 Mobile and Desktop World Cup prediction web app.
 
