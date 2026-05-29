@@ -49,7 +49,7 @@ function loadTurnstileScript() {
 function createGatewayUi() {
   const overlay = document.createElement("div");
   overlay.className = "turnstile-gateway";
-  overlay.innerHTML = `<div class="turnstile-gateway-card"><h2>Security check</h2><p>Please verify once to enter Predikt.</p><div data-turnstile-gateway></div><p class="turnstile-gateway-error" hidden>Verification failed. Please try again.</p></div>`;
+  overlay.innerHTML = `<div class="turnstile-gateway-card"><h2>Security check</h2><p>Please verify once to enter Oddzz.</p><div data-turnstile-gateway></div><p class="turnstile-gateway-error" hidden>Verification failed. Please try again.</p></div>`;
   document.body.appendChild(overlay);
   return overlay;
 }

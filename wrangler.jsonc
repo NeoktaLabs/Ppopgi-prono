@@ -34,7 +34,7 @@
     "crons": ["0 5 * * *", "*/1 * * * *"]
   },
   "vars": {
-    "APP_NAME": "Predikt",
+    "APP_NAME": "Oddzz",
     "APP_URL": "https://predict.ppopgi.xyz",
     "SESSION_DAYS": "90",
     "MAGIC_LINK_MINUTES": "15",
@@ -45,7 +45,7 @@
     "FOOTBALL_API_SEASON": "2026",
     "GLOBAL_ADMIN_EMAILS": "tech@ppopgi.xyz",
     "EMAIL_FROM": "auth@ppopgi.xyz",
-    "EMAIL_FROM_NAME": "Predikt Auth",
+    "EMAIL_FROM_NAME": "Oddzz Auth",
     "EMAIL_REPLY_TO": "tech@ppopgi.xyz",
     "TURNSTILE_SITE_KEY": "0x4AAAAAADXGbNGDwM2GQXFb"
   }

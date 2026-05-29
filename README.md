@@ -1,4 +1,4 @@
-# Predikt
+# Oddzz
 
 Mobile and Desktop World Cup prediction web app.
 

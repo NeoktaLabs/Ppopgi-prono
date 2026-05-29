@@ -134,7 +134,10 @@ body{background:radial-gradient(circle at 8% 8%,rgba(255,181,181,.48),transparen
 }
 
 .icon-button{display:inline-grid;place-items:center;line-height:1}
-.profile-glyph{display:grid;place-items:center;width:1em;height:1em;line-height:1;transform:translateY(-.02em)}
+.profile-glyph{position:relative;display:block;width:1rem;height:1rem}
+.profile-glyph::before,.profile-glyph::after{content:"";position:absolute;left:50%;transform:translateX(-50%);background:currentColor}
+.profile-glyph::before{top:.06rem;width:.42rem;height:.42rem;border-radius:999px}
+.profile-glyph::after{bottom:.06rem;width:.82rem;height:.46rem;border-radius:999px 999px .28rem .28rem}
 .app-footer{display:grid;justify-items:center;gap:.22rem;margin:2rem auto .4rem;text-align:center;color:#53627a;font-size:.84rem;font-weight:750}
 .app-footer p{margin:0}.app-footer strong{color:#12203f}.trademark-note{font-size:.72rem;opacity:.78}
 .donate-button{display:inline-flex;align-items:center;justify-content:center;margin-top:.45rem;padding:.52rem .9rem;border-radius:999px;background:linear-gradient(135deg,#173b78,#4c83d8 58%,#d8a52f);color:#fff;text-decoration:none;font-weight:950;box-shadow:0 12px 24px rgba(23,59,120,.14)}
@@ -143,15 +146,18 @@ body{background:radial-gradient(circle at 8% 8%,rgba(255,181,181,.48),transparen
   .leaderboard-panel .section-title{align-items:flex-start}
   .leaderboard-panel .section-title p{font-size:.88rem;line-height:1.18}
   .leaderboard-table{overflow:visible}
-  .leaderboard-table .leaderboard-row{grid-template-columns:1.75rem minmax(0,1fr) 2.15rem 2.25rem 3.1rem 1.9rem!important;gap:.16rem;padding:.48rem .34rem}
+  .leaderboard-table .leaderboard-row{grid-template-columns:1.55rem minmax(3.9rem,1fr) 1.85rem 2rem 2.75rem 1.45rem!important;gap:.1rem;padding:.48rem .28rem}
   .leaderboard-row{border-radius:16px}
-  .leaderboard-head{font-size:.43rem;letter-spacing:.01em;line-height:1;white-space:nowrap}
+  .leaderboard-head{font-size:.42rem;letter-spacing:0;line-height:1;white-space:nowrap}
+  .leaderboard-head span[data-short]{font-size:0}
+  .leaderboard-head span[data-short]::after{content:attr(data-short);font-size:.42rem}
   .leaderboard-head span:nth-child(2){text-align:left}
-  .leaderboard-row .rank{font-size:.95rem;white-space:nowrap}
-  .leaderboard-row strong{font-size:.96rem;min-width:0}
-  .leaderboard-row:not(.leaderboard-head)>span:nth-child(n+3):not(.movement){font-size:.94rem;white-space:nowrap}
-  .leaderboard-row:not(.leaderboard-head)>span:nth-child(5){font-size:.84rem}
-  .movement{min-width:1.65rem;padding:.12rem .2rem;font-size:.58rem;gap:.06rem;border-radius:999px}
+  .leaderboard-row .rank{font-size:.86rem;white-space:nowrap}
+  .leaderboard-row strong{font-size:.9rem;min-width:0}
+  .leaderboard-row:not(.leaderboard-head)>span:nth-child(n+3):not(.movement){font-size:.86rem;white-space:nowrap}
+  .leaderboard-row:not(.leaderboard-head)>span:nth-child(5){font-size:.76rem}
+  .movement{grid-column:auto!important;width:100%;min-width:0;padding:.1rem .12rem;font-size:.52rem;gap:.03rem;border-radius:999px}
+  .movement.neutral{font-size:.7rem}
   .app-footer{font-size:.78rem;margin-top:1.4rem}
   .trademark-note{font-size:.66rem}
 }
