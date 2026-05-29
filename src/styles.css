@@ -91,3 +91,19 @@ body{background:radial-gradient(circle at 8% 8%,rgba(255,181,181,.48),transparen
 .header-actions{justify-self:end;align-items:flex-start}
 .auth-topbar .language-toggle,.auth-page-simple .language-toggle{margin-left:auto}
 @media(max-width:900px){.header-actions{flex-direction:row;align-items:center}.header-actions .language-toggle{order:2}.header-actions .ghost{order:1}.language-toggle button{width:2rem;height:2rem}.language-toggle img{width:1.36rem;height:1.36rem}}
+
+.app-top-nav{display:grid;grid-template-columns:1fr auto;align-items:center;gap:.75rem}
+.nav-links,.nav-actions{display:flex;align-items:center;gap:.35rem;min-width:0}
+.nav-links{justify-content:center;overflow-x:auto}
+.nav-actions{justify-content:flex-end}
+.icon-button{display:grid;place-items:center;width:2.45rem;height:2.45rem;padding:0;border-radius:999px;background:rgba(255,255,255,.74);border:1px solid rgba(23,59,120,.12);box-shadow:none;color:#173b78}
+.icon-button.active{background:#173b78;color:#fff}
+.signout-button{white-space:nowrap}
+.app-header{grid-template-columns:minmax(0,1fr) auto}
+.app-header .header-actions{display:none}
+.league-code-pill{align-self:start;justify-self:end;margin-top:.15rem}
+.leaderboard-table .leaderboard-row{grid-template-columns:3rem minmax(9rem,1fr) minmax(5rem,auto) minmax(4.5rem,auto) minmax(5rem,auto) minmax(4.5rem,auto)!important}
+.movement{display:inline-flex!important;align-items:center;justify-content:center;width:max-content;justify-self:center}
+.match-countdown{margin:.42rem 0 0;padding:.36rem .62rem;border-radius:999px;background:#fff4d5;color:#8a6116;font-size:.72rem;font-weight:950;text-align:center}
+.inline-pick input,.admin-card .inline-pick input{text-align:center!important}
+@media(max-width:900px){.app-top-nav{grid-template-columns:1fr;gap:.45rem}.nav-links{justify-content:flex-start}.nav-actions{justify-content:flex-start}.signout-button{padding:.5rem .68rem}.icon-button{width:2.25rem;height:2.25rem}.app-header{grid-template-columns:1fr}.league-code-pill{justify-self:start}.leaderboard-table .leaderboard-row{grid-template-columns:2.25rem minmax(5.8rem,1fr) 3.35rem 3.3rem 4.2rem 3.2rem!important}.movement{font-size:.68rem}.match-countdown{font-size:.66rem;line-height:1.2}}

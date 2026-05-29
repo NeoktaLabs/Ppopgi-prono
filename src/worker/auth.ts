@@ -90,6 +90,32 @@ export async function requestMagicLink(request: Request, env: Env) {
 async function sendMagicLinkEmail(env: Env, to: string, url: string) {
   const subject = `${env.APP_NAME}: your login link`;
   const text = `Click this link to sign in to ${env.APP_NAME}: ${url}\n\nThis link expires soon and can only be used once.`;
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#eff6ff;font-family:Arial,Helvetica,sans-serif;color:#14213d;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eff6ff;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border-radius:24px;border:1px solid #dbe7f6;overflow:hidden;">
+            <tr>
+              <td style="padding:28px 28px 18px;text-align:center;background:linear-gradient(135deg,#173b78,#4c83d8 60%,#d8a52f);color:#ffffff;">
+                <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">World Cup 2026 predictions</div>
+                <h1 style="margin:12px 0 0;font-size:30px;line-height:1.05;">Sign in to ${env.APP_NAME}</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px;text-align:center;">
+                <p style="margin:0 0 22px;font-size:16px;line-height:1.55;color:#53627a;">Use this secure magic link to continue. It expires soon and can only be used once.</p>
+                <a href="${url}" style="display:inline-block;padding:14px 22px;border-radius:999px;background:#173b78;color:#ffffff;text-decoration:none;font-weight:700;">Open ${env.APP_NAME}</a>
+                <p style="margin:22px 0 0;font-size:13px;line-height:1.5;color:#667085;">If the button does not work, paste this link into your browser:<br><a href="${url}" style="color:#173b78;word-break:break-all;">${url}</a></p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
   if (!env.EMAIL?.send) {
     throw new Error("Cloudflare Email binding EMAIL is not configured.");
@@ -104,6 +130,7 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
     replyTo: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
     subject,
     text,
+    html,
   });
 }
 
