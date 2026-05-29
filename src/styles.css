@@ -306,3 +306,23 @@ input:focus{border-color:var(--pitch);box-shadow:0 0 0 4px rgba(31,211,107,.16)}
 .auth-page-simple .auth-form-row button,.auth-page .auth-form-row button{background:linear-gradient(135deg,var(--pitch),var(--pitch-dark))!important;color:#041225!important;border:0!important;border-radius:16px!important;box-shadow:0 14px 28px rgba(31,211,107,.22)!important;text-transform:none!important;letter-spacing:0!important}
 .auth-mini-points{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.2rem}
 .auth-mini-points span{display:inline-flex;align-items:center;min-height:2rem;padding:.42rem .68rem;border-radius:999px;background:#fff!important;border:1px solid #dce6f3!important;color:var(--night)!important;box-shadow:0 10px 22px rgba(6,23,53,.08);font-weight:850}
+
+/* Invite sharing, footer fit, and Oddzz wordmark */
+html,body,#root{min-height:100%}
+body{overflow-x:hidden}
+.shell,.auth-page-simple{padding-bottom:0!important}
+.league-invite{align-self:start;justify-self:end;display:grid;gap:.48rem;justify-items:end;max-width:min(100%,28rem);position:relative;z-index:1}
+.league-share-actions{display:flex;align-items:center;justify-content:flex-end;gap:.34rem;flex-wrap:wrap}
+.league-share-actions button,.league-share-actions a{display:inline-flex;align-items:center;justify-content:center;min-height:2.05rem;padding:.45rem .68rem;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.1);color:#fff;text-decoration:none;font-size:.76rem;font-weight:950;box-shadow:none}
+.league-share-actions button:hover,.league-share-actions a:hover{background:rgba(255,255,255,.18);filter:none}
+.league-share-actions button:first-child{background:var(--pitch);color:#041225;border-color:transparent}
+.mobile-brand{font-family:"Galada","Brush Script MT",cursive!important;font-size:1.72rem!important;font-weight:400!important;line-height:1!important;letter-spacing:0!important;display:inline-block!important;transform:rotate(-45deg);transform-origin:center;color:#fff!important;text-shadow:0 8px 18px rgba(0,0,0,.18)}
+.auth-topbar strong{font-family:"Galada","Brush Script MT",cursive!important;font-weight:400!important;letter-spacing:0!important;display:inline-block;transform:rotate(-45deg);transform-origin:center}
+.app-footer{margin-bottom:0!important;padding-bottom:1.7rem!important}
+@media(max-width:900px){
+  .league-invite{justify-self:start;justify-items:start;max-width:100%}
+  .league-share-actions{justify-content:flex-start;gap:.28rem}
+  .league-share-actions button,.league-share-actions a{min-height:1.9rem;padding:.38rem .52rem;font-size:.68rem}
+  .mobile-brand{font-size:1.45rem!important}
+  .league-code-pill{margin-top:0}
+}
