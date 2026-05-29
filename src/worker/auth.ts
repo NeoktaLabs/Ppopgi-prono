@@ -121,7 +121,7 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
     throw new Error("Cloudflare Email binding EMAIL is not configured.");
   }
 
-  await env.EMAIL.send({
+  const message = {
     from: {
       email: env.EMAIL_FROM,
       name: env.EMAIL_FROM_NAME || env.APP_NAME,
@@ -130,8 +130,14 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
     replyTo: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
     subject,
     text,
-    html,
-  });
+  };
+
+  try {
+    await env.EMAIL.send({ ...message, html });
+  } catch (error) {
+    console.error("HTML magic link email failed, retrying text-only", { to, error: errorMessage(error) });
+    await env.EMAIL.send(message);
+  }
 }
 
 export async function verifyMagicLink(request: Request, env: Env) {

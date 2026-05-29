@@ -107,3 +107,28 @@ body{background:radial-gradient(circle at 8% 8%,rgba(255,181,181,.48),transparen
 .match-countdown{margin:.42rem 0 0;padding:.36rem .62rem;border-radius:999px;background:#fff4d5;color:#8a6116;font-size:.72rem;font-weight:950;text-align:center}
 .inline-pick input,.admin-card .inline-pick input{text-align:center!important}
 @media(max-width:900px){.app-top-nav{grid-template-columns:1fr;gap:.45rem}.nav-links{justify-content:flex-start}.nav-actions{justify-content:flex-start}.signout-button{padding:.5rem .68rem}.icon-button{width:2.25rem;height:2.25rem}.app-header{grid-template-columns:1fr}.league-code-pill{justify-self:start}.leaderboard-table .leaderboard-row{grid-template-columns:2.25rem minmax(5.8rem,1fr) 3.35rem 3.3rem 4.2rem 3.2rem!important}.movement{font-size:.68rem}.match-countdown{font-size:.66rem;line-height:1.2}}
+
+/* Mobile polish: keep the fixed nav on one compact row and prevent trend pills from wrapping. */
+.app-top-nav{grid-template-columns:minmax(0,1fr) auto}
+.nav-links{justify-content:flex-start}
+.nav-actions{flex:0 0 auto}
+.movement{gap:.12rem;min-width:2.25rem;white-space:nowrap;line-height:1}
+.movement span{display:inline}
+@media(max-width:900px){
+  .shell:has(.top-nav){padding-top:3.95rem}
+  .app-top-nav{display:flex;align-items:center;gap:.45rem;overflow:hidden;padding:.46rem .55rem;min-height:3.35rem}
+  .nav-links{flex:1 1 auto;min-width:0;overflow-x:auto;justify-content:flex-start;scrollbar-width:none}
+  .nav-links::-webkit-scrollbar{display:none}
+  .nav-actions{flex:0 0 auto;justify-content:flex-end;gap:.22rem}
+  .nav-links button{flex:0 0 auto;padding:.42rem .58rem;font-size:.78rem}
+  .language-toggle{gap:.12rem;padding:.14rem}
+  .language-toggle button{width:1.72rem;height:1.72rem}
+  .language-toggle img{width:1.14rem;height:1.14rem}
+  .icon-button{width:1.9rem;height:1.9rem;font-size:.9rem}
+  .signout-button{padding:.42rem .55rem;font-size:.74rem}
+  .leaderboard-table{overflow-x:auto;padding-bottom:.2rem}
+  .leaderboard-table .leaderboard-row{grid-template-columns:2.1rem minmax(5.4rem,1fr) 2.7rem 2.55rem 3.8rem 2.55rem!important;gap:.24rem;min-width:0;padding:.5rem .42rem}
+  .leaderboard-head{font-size:.48rem;letter-spacing:.02em}
+  .leaderboard-row strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .movement{min-width:2.1rem;padding:.16rem .26rem;font-size:.62rem}
+}
