@@ -179,3 +179,30 @@ body{background:radial-gradient(circle at 8% 8%,rgba(255,181,181,.48),transparen
   .leaderboard-row:not(.leaderboard-head)>span:nth-child(5){font-size:.74rem}
   .movement{font-size:.5rem}
 }
+
+/* Navigation and league hub hierarchy */
+.app-top-nav{display:grid!important;grid-template-columns:minmax(7rem,auto) minmax(0,1fr) auto;align-items:center;gap:.7rem}
+.mobile-brand{display:block;justify-self:start;color:#12203f;font-weight:950;font-size:1.05rem;letter-spacing:-.02em;white-space:nowrap}
+.app-top-nav>.nav-links{justify-content:center}
+.app-top-nav>.nav-actions{justify-self:end}
+.hub-leagues-panel{position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(255,255,255,.96),rgba(232,241,255,.82))!important;border-color:rgba(23,59,120,.12)!important;box-shadow:0 26px 56px rgba(50,89,139,.16),inset 0 1px 0 rgba(255,255,255,.88)!important}
+.hub-leagues-panel::after{content:"";position:absolute;right:-4rem;bottom:-5rem;width:13rem;height:13rem;border-radius:999px;background:rgba(23,59,120,.06);pointer-events:none}
+.hub-leagues-panel>.section-title,.hub-leagues-panel>.league-list,.hub-leagues-panel>.muted{position:relative;z-index:1}
+.hub-leagues-panel .league-list li{background:rgba(255,255,255,.92);border:1px solid rgba(23,59,120,.1);box-shadow:0 16px 32px rgba(50,89,139,.1)}
+.hub-actions{align-items:stretch}
+.hub-action-card{position:relative;overflow:hidden;border:1px solid rgba(23,59,120,.1)!important}
+.hub-action-card::before{content:"";position:absolute;inset:0 0 auto;height:.35rem;background:#4c83d8}
+.hub-action-card:nth-child(2)::before{background:#d8a52f}
+.hub-action-card:nth-child(1){background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(239,246,255,.72))!important}
+.hub-action-card:nth-child(2){background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(255,244,213,.72))!important}
+.hub-action-card h3,.hub-action-card p,.hub-action-card .form-row{position:relative;z-index:1}
+@media(max-width:900px){
+  .app-top-nav{grid-template-columns:auto minmax(0,1fr) auto!important;gap:.35rem}
+  .mobile-brand{font-size:1rem}
+  .app-top-nav>.nav-actions{display:none!important}
+  .top-nav .mobile-menu-button{display:flex!important;flex-direction:column;align-items:center;justify-content:center;gap:.18rem;width:2.15rem;height:2.15rem;padding:0!important;line-height:0}
+  .top-nav .mobile-menu-button span{display:block;flex:0 0 auto;width:.9rem;height:.12rem;margin:0;border-radius:999px;background:#173b78}
+  .hub-leagues-panel{padding:1.05rem!important}
+  .hub-actions{gap:.9rem}
+  .hub-action-card{padding:1.05rem!important}
+}
