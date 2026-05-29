@@ -1,6 +1,6 @@
 import type { Env, MatchRow } from "./types";
 import { badRequest, json, requireUser } from "./utils";
-import { calculatePredictionPoints, multiplierForStage, usableFinalScore } from "./scoring";
+import { calculatePredictionPoints, isGroupStage, multiplierForStage, usableFinalScore } from "./scoring";
 
 type LeaderboardRow = {
   user_id: string;
@@ -51,10 +51,11 @@ async function officialLeaderboard(env: Env, leagueId: string): Promise<Leaderbo
       COALESCE(SUM(predictions.is_exact), 0) as exact_scores,
       COALESCE(SUM(predictions.is_correct_result), 0) as correct_results,
       COUNT(predictions.id) as predictions_count,
-      2 - COALESCE(SUM(predictions.bonus_used), 0) as bonuses_remaining
+      2 - COALESCE(SUM(CASE WHEN predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' THEN 1 ELSE 0 END), 0) as bonuses_remaining
     FROM league_members
     JOIN users ON users.id = league_members.user_id
     LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id
+    LEFT JOIN matches ON matches.id = predictions.match_id
     WHERE league_members.league_id = ? AND league_members.removed_at IS NULL
     GROUP BY users.id
   `).bind(leagueId).all<Omit<LeaderboardRow, "rank">>();
@@ -107,7 +108,7 @@ async function provisionalLiveLeaderboard(env: Env, leagueId: string, official: 
         finalHome: liveScore.home,
         finalAway: liveScore.away,
         multiplier: match.points_multiplier,
-        bonusMultiplier: prediction.bonus_used ? 5 : 1,
+        bonusMultiplier: prediction.bonus_used && isGroupStage(match.stage) ? 5 : 1,
       });
 
       current.points += points.points;
@@ -183,7 +184,7 @@ async function predictionsForMatch(env: Env, leagueId: string, match: MatchRow) 
           finalHome: liveScore.home,
           finalAway: liveScore.away,
           multiplier: match.points_multiplier,
-          bonusMultiplier: prediction.bonus_used ? 5 : 1,
+          bonusMultiplier: prediction.bonus_used && isGroupStage(match.stage) ? 5 : 1,
         }).points
       : prediction.points;
 

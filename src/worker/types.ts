@@ -13,6 +13,7 @@ export type Env = {
   EMAIL_REPLY_TO?: string;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
+  DEV_AUTH_BYPASS?: string;
   FOOTBALL_API_KEY?: string;
   FOOTBALL_API_BASE_URL?: string;
   FOOTBALL_API_LEAGUE_ID?: string;

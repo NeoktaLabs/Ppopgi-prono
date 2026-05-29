@@ -61,3 +61,7 @@ export function multiplierForStage(stage: string | null) {
 
   return 1;
 }
+
+export function isGroupStage(stage: string | null) {
+  return (stage ?? "").toLowerCase().includes("group");
+}

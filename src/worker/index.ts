@@ -1,5 +1,5 @@
 import type { Env } from "./types";
-import { requestMagicLink, verifyMagicLink, logout, verifyGatewayTurnstile } from "./auth";
+import { requestMagicLink, verifyMagicLink, logout, verifyGatewayTurnstile, devLogin } from "./auth";
 import { badRequest, json } from "./utils";
 import {
   createLeague,
@@ -42,6 +42,7 @@ async function handleApi(request: Request, env: Env) {
   const { pathname } = url;
 
   if (request.method === "GET" && pathname === "/api/config") return json({ turnstileSiteKey: env.TURNSTILE_SITE_KEY || null });
+  if (request.method === "GET" && pathname === "/api/dev/login") return devLogin(request, env);
 
   if (request.method === "POST" && pathname === "/api/turnstile/gateway-verify") return verifyGatewayTurnstile(request, env);
   if (request.method === "POST" && pathname === "/api/auth/request-link") return requestMagicLink(request, env);

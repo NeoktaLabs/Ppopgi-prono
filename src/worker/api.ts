@@ -1,6 +1,6 @@
 import type { Env, MatchRow } from "./types";
 import { badRequest, json, nowIso, randomCode, readJson, requireUser } from "./utils";
-import { calculatePredictionPoints, multiplierForStage, usableFinalScore } from "./scoring";
+import { calculatePredictionPoints, isGroupStage, multiplierForStage, usableFinalScore } from "./scoring";
 
 function isGlobalAdmin(env: Env, email: string) {
   return (env.GLOBAL_ADMIN_EMAILS ?? "")
@@ -22,7 +22,7 @@ export async function updateProfile(request: Request, env: Env) {
   if (!user) return badRequest("Not authenticated.", 401);
   const { nickname } = await readJson<{ nickname?: string }>(request);
   const clean = nickname?.trim();
-  if (!clean || clean.length < 2 || clean.length > 12) return badRequest("Nickname must be between 2 and 12 characters.");
+  if (!clean || clean.length < 2 || clean.length > 15) return badRequest("Nickname must be between 2 and 15 characters.");
   await env.DB.prepare("UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?").bind(clean, nowIso(), user.id).run();
   return json({ ok: true });
 }
@@ -63,7 +63,7 @@ export async function joinLeague(request: Request, env: Env) {
 
 export async function leaderboard(request: Request, env: Env, leagueId: string) {
   if (!(await requireUser(request, env))) return badRequest("Not authenticated.", 401);
-  const rows = await env.DB.prepare(`SELECT users.id, users.nickname, COALESCE(SUM(predictions.points), 0) as points, COALESCE(SUM(predictions.is_exact), 0) as exact_scores, COALESCE(SUM(predictions.is_correct_result), 0) as correct_results, COUNT(predictions.id) as predictions_count, 2 - COALESCE(SUM(predictions.bonus_used), 0) as bonuses_remaining FROM league_members JOIN users ON users.id = league_members.user_id LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id WHERE league_members.league_id = ? AND league_members.removed_at IS NULL GROUP BY users.id ORDER BY points DESC, exact_scores DESC, correct_results DESC, predictions_count DESC, users.nickname ASC`).bind(leagueId).all();
+  const rows = await env.DB.prepare(`SELECT users.id, users.nickname, COALESCE(SUM(predictions.points), 0) as points, COALESCE(SUM(predictions.is_exact), 0) as exact_scores, COALESCE(SUM(predictions.is_correct_result), 0) as correct_results, COUNT(predictions.id) as predictions_count, 2 - COALESCE(SUM(CASE WHEN predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' THEN 1 ELSE 0 END), 0) as bonuses_remaining FROM league_members JOIN users ON users.id = league_members.user_id LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id LEFT JOIN matches ON matches.id = predictions.match_id WHERE league_members.league_id = ? AND league_members.removed_at IS NULL GROUP BY users.id ORDER BY points DESC, exact_scores DESC, correct_results DESC, predictions_count DESC, users.nickname ASC`).bind(leagueId).all();
   return json({ leaderboard: rows.results ?? [] });
 }
 
@@ -110,7 +110,7 @@ export async function myPredictions(request: Request, env: Env, leagueId: string
   if (!user) return badRequest("Not authenticated.", 401);
   const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
   if (!membership) return badRequest("You are not a member of this league.", 403);
-  const rows = await env.DB.prepare("SELECT match_id, home_score, away_score, bonus_used, updated_at FROM predictions WHERE league_id = ? AND user_id = ?").bind(leagueId, user.id).all();
+  const rows = await env.DB.prepare("SELECT match_id, home_score, away_score, points, bonus_used, updated_at FROM predictions WHERE league_id = ? AND user_id = ?").bind(leagueId, user.id).all();
   return json({ predictions: rows.results ?? [] });
 }
 
@@ -132,8 +132,9 @@ export async function upsertPrediction(request: Request, env: Env, leagueId: str
   if (matchLocksPredictions(match)) return badRequest("This match is locked because kickoff has passed or a final score has been set.", 409);
   const useBonus = body.useBonus === true;
   if (useBonus) {
-    const usage = await env.DB.prepare("SELECT COUNT(*) as count FROM predictions WHERE league_id = ? AND user_id = ? AND bonus_used = 1 AND match_id != ?").bind(leagueId, user.id, body.matchId).first<{ count: number }>();
-    if (Number(usage?.count ?? 0) >= 2) return badRequest("You have already used your two tournament bonuses.", 409);
+    if (!isGroupStage(match.stage)) return badRequest("The x5 bonus can only be used during the group stage.", 409);
+    const usage = await env.DB.prepare("SELECT COUNT(*) as count FROM predictions JOIN matches ON matches.id = predictions.match_id WHERE predictions.league_id = ? AND predictions.user_id = ? AND predictions.bonus_used = 1 AND predictions.match_id != ? AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%'").bind(leagueId, user.id, body.matchId).first<{ count: number }>();
+    if (Number(usage?.count ?? 0) >= 2) return badRequest("You have already used your two group-stage x5 bonuses.", 409);
   }
   await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, bonus_used, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(league_id, user_id, match_id) DO UPDATE SET home_score = excluded.home_score, away_score = excluded.away_score, bonus_used = excluded.bonus_used, updated_at = excluded.updated_at`).bind(crypto.randomUUID(), leagueId, user.id, body.matchId, homeScore, awayScore, useBonus ? 1 : 0, nowIso(), nowIso()).run();
   return json({ ok: true });
@@ -173,7 +174,7 @@ export async function recalculateMatch(env: Env, matchId: string) {
   }
   const predictions = await env.DB.prepare("SELECT id, home_score, away_score, bonus_used FROM predictions WHERE match_id = ?").bind(matchId).all<{ id: string; home_score: number; away_score: number; bonus_used: number }>();
   for (const prediction of predictions.results ?? []) {
-    const score = calculatePredictionPoints({ predictedHome: prediction.home_score, predictedAway: prediction.away_score, finalHome: finalScore.home, finalAway: finalScore.away, multiplier: match.points_multiplier, bonusMultiplier: prediction.bonus_used ? 5 : 1 });
+    const score = calculatePredictionPoints({ predictedHome: prediction.home_score, predictedAway: prediction.away_score, finalHome: finalScore.home, finalAway: finalScore.away, multiplier: match.points_multiplier, bonusMultiplier: prediction.bonus_used && isGroupStage(match.stage) ? 5 : 1 });
     await env.DB.prepare("UPDATE predictions SET points = ?, is_exact = ?, is_correct_result = ?, updated_at = ? WHERE id = ?").bind(score.points, score.isExact ? 1 : 0, score.isCorrectResult ? 1 : 0, nowIso(), prediction.id).run();
   }
 }

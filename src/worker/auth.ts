@@ -6,6 +6,15 @@ type MagicLinkRequest = {
   turnstileToken?: string;
 };
 
+function localDevRequest(request: Request) {
+  const hostname = new URL(request.url).hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith(".local");
+}
+
+function devSessionCookie(token: string, maxAgeSeconds: number) {
+  return `session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
+}
+
 function hasGatewayCookie(request: Request) {
   const cookie = request.headers.get("Cookie") ?? "";
   return cookie.split(";").some((part) => part.trim() === "turnstile_gateway=1");
@@ -45,6 +54,51 @@ export async function verifyGatewayTurnstile(request: Request, env: Env) {
 }
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function findOrCreateUser(env: Env, email: string, nickname?: string | null) {
+  let user = await env.DB.prepare("SELECT id, email, nickname FROM users WHERE email = ?")
+    .bind(email)
+    .first<User>();
+
+  if (!user) {
+    const id = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO users (id, email, nickname, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(id, email, nickname ?? null, nowIso(), nowIso()).run();
+
+    user = { id, email, nickname: nickname ?? null };
+  } else if (!user.nickname && nickname) {
+    await env.DB.prepare("UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?")
+      .bind(nickname, nowIso(), user.id)
+      .run();
+    user = { ...user, nickname };
+  }
+
+  return user;
+}
+
+async function createSession(request: Request, env: Env, userId: string) {
+  const sessionToken = randomToken();
+  const sessionHash = await sha256(sessionToken);
+  const sessionDays = Number(env.SESSION_DAYS || 90);
+
+  await env.DB.prepare(`
+    INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at, last_seen_at, user_agent, ip_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    crypto.randomUUID(),
+    userId,
+    sessionHash,
+    addDays(sessionDays),
+    nowIso(),
+    nowIso(),
+    request.headers.get("User-Agent"),
+    await sha256(request.headers.get("CF-Connecting-IP") ?? "unknown"),
+  ).run();
+
+  return { sessionToken, sessionDays };
 }
 
 export async function requestMagicLink(request: Request, env: Env) {
@@ -157,43 +211,61 @@ export async function verifyMagicLink(request: Request, env: Env) {
     .bind(nowIso(), link.id)
     .run();
 
-  let user = await env.DB.prepare("SELECT id, email, nickname FROM users WHERE email = ?")
-    .bind(link.email)
-    .first<User>();
-
-  if (!user) {
-    const id = crypto.randomUUID();
-    await env.DB.prepare(`
-      INSERT INTO users (id, email, nickname, created_at, updated_at)
-      VALUES (?, ?, NULL, ?, ?)
-    `).bind(id, link.email, nowIso(), nowIso()).run();
-
-    user = { id, email: link.email, nickname: null };
-  }
-
-  const sessionToken = randomToken();
-  const sessionHash = await sha256(sessionToken);
-  const sessionDays = Number(env.SESSION_DAYS || 90);
-
-  await env.DB.prepare(`
-    INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at, last_seen_at, user_agent, ip_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    crypto.randomUUID(),
-    user.id,
-    sessionHash,
-    addDays(sessionDays),
-    nowIso(),
-    nowIso(),
-    request.headers.get("User-Agent"),
-    await sha256(request.headers.get("CF-Connecting-IP") ?? "unknown"),
-  ).run();
+  const user = await findOrCreateUser(env, link.email);
+  const { sessionToken, sessionDays } = await createSession(request, env, user.id);
 
   return new Response(null, {
     status: 302,
     headers: {
       Location: "/",
       "Set-Cookie": sessionCookie(sessionToken, sessionDays * 24 * 60 * 60),
+    },
+  });
+}
+
+export async function devLogin(request: Request, env: Env) {
+  if (env.DEV_AUTH_BYPASS !== "1" || !localDevRequest(request)) {
+    return json({ error: "Dev auth bypass is disabled." }, { status: 404 });
+  }
+
+  const url = new URL(request.url);
+  const email = url.searchParams.get("email")?.trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    return json({ error: "Missing or invalid email. Use /api/dev/login?email=name@example.com" }, { status: 400 });
+  }
+
+  const nicknameParam = url.searchParams.get("nickname")?.trim();
+  const fallbackNickname = email.split("@")[0].replace(/[^a-z0-9_-]/gi, "").slice(0, 15) || "Codex";
+  const nickname = (nicknameParam || fallbackNickname).slice(0, 15);
+  const user = await findOrCreateUser(env, email, nickname);
+  const { sessionToken, sessionDays } = await createSession(request, env, user.id);
+
+  const leagueParam = url.searchParams.get("league")?.trim();
+  let leagueId: string | null = null;
+  if (leagueParam) {
+    const league = await env.DB.prepare("SELECT id FROM leagues WHERE id = ? OR code = ?")
+      .bind(leagueParam, leagueParam.toUpperCase())
+      .first<{ id: string }>();
+
+    if (league) {
+      leagueId = league.id;
+      await env.DB.prepare(`
+        INSERT INTO league_members (id, league_id, user_id, role, joined_at)
+        VALUES (?, ?, ?, 'member', ?)
+        ON CONFLICT(league_id, user_id) DO UPDATE SET removed_at = NULL, removed_by_user_id = NULL
+      `).bind(crypto.randomUUID(), league.id, user.id, nowIso()).run();
+    }
+  }
+
+  const redirectUrl = new URL("/", url.origin);
+  redirectUrl.searchParams.set("devAuth", "1");
+  if (leagueId) redirectUrl.searchParams.set("devLeagueId", leagueId);
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: `${redirectUrl.pathname}${redirectUrl.search}`,
+      "Set-Cookie": devSessionCookie(sessionToken, sessionDays * 24 * 60 * 60),
     },
   });
 }

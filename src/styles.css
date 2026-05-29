@@ -333,3 +333,44 @@ body{overflow-x:hidden}
   .league-code-pill{margin-top:0}
   .match-card .multiplier-tooltip{right:-.35rem;max-width:min(15rem,76vw);font-size:.68rem}
 }
+
+/* Prediction card refresh */
+.match-main.is-clickable{cursor:pointer}
+.match-card:has(.points-badge) .match-main{padding-right:5.6rem}
+.score-predictor{display:inline-grid;grid-template-columns:3.25rem auto 3.25rem;align-items:center;gap:.34rem;min-width:7.4rem;border-radius:18px;padding:.24rem;background:#eaf4ff;border:1px solid rgba(9,24,51,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.82)}
+.score-predictor input{width:3.25rem;height:2.65rem;padding:.25rem;text-align:center;border-radius:14px;border:1px solid rgba(9,24,51,.12);background:#fff;color:var(--night);font-size:1.1rem;font-weight:950;appearance:textfield}
+.score-predictor input::-webkit-outer-spin-button,.score-predictor input::-webkit-inner-spin-button{appearance:none;margin:0}
+.score-predictor>span{font-weight:950;color:var(--night)}
+.match-actions{display:flex;align-items:center;justify-content:center;gap:.45rem;flex-wrap:wrap;width:100%;margin-top:.72rem}
+.match-actions .bonus-toggle{margin:0!important;background:linear-gradient(135deg,#ff4d5e,#ff8b98)!important;color:#fff!important;border:1px solid rgba(255,255,255,.62)!important;box-shadow:0 10px 22px rgba(255,77,94,.18)!important}
+.match-actions .bonus-toggle:has(input:checked){background:linear-gradient(135deg,#1fd36b,#0f9f50)!important;color:#041225!important}
+.match-actions .bonus-toggle input{accent-color:#1fd36b}
+.match-card .match-countdown{display:inline-flex;align-items:center;justify-content:center;width:max-content;max-width:100%;margin:-.35rem auto .72rem!important;background:#eaf4ff!important;color:#0b2857!important;border:1px solid rgba(76,131,216,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.78)}
+.match-rules{display:flex;flex-wrap:wrap;gap:.42rem;margin:.48rem 0 0;padding:0;list-style:none}
+.match-rules li{display:inline-flex;align-items:center;min-height:1.85rem;padding:.36rem .58rem;border-radius:999px;background:#f4f8ff;border:1px solid rgba(9,24,51,.08);color:#53627a;font-size:.74rem;font-weight:850;line-height:1.15}
+.match-rules li::before{content:"";width:.38rem;height:.38rem;margin-right:.38rem;border-radius:999px;background:var(--pitch)}
+.inline-save-state{grid-column:auto;min-height:0;padding:.26rem .5rem;border-radius:999px;background:#ecfdf3;color:#067647}
+.points-badge{position:absolute;top:.82rem;right:.85rem;z-index:4;display:grid;place-items:center;min-width:4.25rem;min-height:3.25rem;padding:.42rem .58rem;border-radius:18px;background:linear-gradient(135deg,#fff,#eaf4ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 12px 22px rgba(6,23,53,.12),inset 0 1px 0 rgba(255,255,255,.85);color:var(--night);line-height:1}
+.points-badge small{font-size:.58rem;font-weight:950;text-transform:uppercase;letter-spacing:.05em;color:#53627a}
+.points-badge strong{font-size:.88rem;font-weight:950;color:var(--night);white-space:nowrap}
+.points-badge.is-live{background:linear-gradient(135deg,#ecfdf3,#dcfce7);border-color:rgba(31,211,107,.34);box-shadow:0 12px 22px rgba(31,211,107,.16),inset 0 1px 0 rgba(255,255,255,.85)}
+.points-badge.is-live small{color:#067647}
+.live-match-card{position:relative;padding-right:5.7rem}
+.live-match-card .points-badge{top:.7rem;right:.7rem}
+.match-card.is-started .prediction-list.expanded{margin:.15rem .95rem 1rem 1.35rem;padding:1rem;border-radius:18px;background:rgba(255,255,255,.54);border:1px solid rgba(9,24,51,.06);backdrop-filter:blur(8px)}
+.match-card.is-started .prediction-list.expanded .prediction-table{width:100%}
+@media(max-width:900px){
+  .match-card:has(.points-badge) .match-main{padding-right:4.8rem}
+  .score-predictor{grid-template-columns:2.65rem auto 2.65rem;min-width:6.2rem;gap:.24rem;padding:.2rem;border-radius:16px}
+  .score-predictor input{width:2.65rem;height:2.35rem;font-size:1rem;border-radius:13px}
+  .match-actions{gap:.34rem;margin-top:.62rem}
+  .match-actions .bonus-toggle{font-size:.68rem;padding:.28rem .48rem}
+  .match-card .match-countdown{font-size:.62rem;padding:.3rem .48rem;margin:-.28rem auto .62rem!important}
+  .match-rules{gap:.32rem}
+  .match-rules li{width:100%;border-radius:14px;font-size:.68rem}
+  .points-badge{right:.55rem;top:.7rem;min-width:3.7rem;min-height:2.85rem;padding:.36rem .42rem;border-radius:16px}
+  .points-badge small{font-size:.5rem}
+  .points-badge strong{font-size:.76rem}
+  .live-match-card{padding-right:4.9rem}
+  .match-card.is-started .prediction-list.expanded{margin:.05rem .62rem .82rem 1rem;padding:.78rem .62rem}
+}

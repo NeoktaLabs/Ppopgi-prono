@@ -36,6 +36,10 @@ function markGatewayPassed() {
   localStorage.setItem(TURNSTILE_PASSED_KEY, "1");
 }
 
+function hasDevAuthBypassMarker() {
+  return new URL(window.location.href).searchParams.get("devAuth") === "1";
+}
+
 function loadTurnstileScript() {
   if (document.querySelector("script[data-turnstile-api]")) return;
   const script = document.createElement("script");
@@ -65,6 +69,10 @@ async function verifyGatewayToken(token: string) {
 }
 
 export async function initTurnstileLogin() {
+  if (hasDevAuthBypassMarker()) {
+    markGatewayPassed();
+    return;
+  }
   if (hasPassedGateway()) return;
 
   const siteKey = await getTurnstileSiteKey();
