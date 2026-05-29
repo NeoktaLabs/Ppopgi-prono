@@ -27,7 +27,7 @@
   "send_email": [
     {
       "name": "EMAIL",
-      "allowed_sender_addresses": ["auth@ppopgi.xyz"]
+      "allowed_sender_addresses": ["do-not-reply@oddzz.xyz"]
     }
   ],
   "triggers": {
@@ -35,7 +35,7 @@
   },
   "vars": {
     "APP_NAME": "Oddzz",
-    "APP_URL": "https://predict.ppopgi.xyz",
+    "APP_URL": "https://oddzz.xyz",
     "SESSION_DAYS": "90",
     "MAGIC_LINK_MINUTES": "15",
     "LEAGUE_CODE_LENGTH": "6",
@@ -44,9 +44,9 @@
     "FOOTBALL_API_LEAGUE_ID": "1",
     "FOOTBALL_API_SEASON": "2026",
     "GLOBAL_ADMIN_EMAILS": "tech@ppopgi.xyz",
-    "EMAIL_FROM": "auth@ppopgi.xyz",
+    "EMAIL_FROM": "do-not-reply@oddzz.xyz",
     "EMAIL_FROM_NAME": "Oddzz Auth",
-    "EMAIL_REPLY_TO": "tech@ppopgi.xyz",
+    "EMAIL_REPLY_TO": "do-not-reply@oddzz.xyz",
     "TURNSTILE_SITE_KEY": "0x4AAAAAADXGbNGDwM2GQXFb"
   }
 }
