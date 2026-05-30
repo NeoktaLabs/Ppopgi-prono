@@ -138,7 +138,6 @@ export async function deleteGlobalLeague(request: Request, env: Env, leagueId: s
 
   await env.DB.batch([
     env.DB.prepare("DELETE FROM leaderboard_snapshots WHERE league_id = ?").bind(leagueId),
-    env.DB.prepare("DELETE FROM predictions WHERE league_id = ?").bind(leagueId),
     env.DB.prepare("DELETE FROM league_members WHERE league_id = ?").bind(leagueId),
     env.DB.prepare("DELETE FROM leagues WHERE id = ?").bind(leagueId),
   ]);

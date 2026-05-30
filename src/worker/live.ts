@@ -44,18 +44,23 @@ function rankRows(rows: Omit<LeaderboardRow, "rank">[]): LeaderboardRow[] {
 
 async function officialLeaderboard(env: Env, leagueId: string): Promise<LeaderboardRow[]> {
   const rows = await env.DB.prepare(`
+    WITH global_predictions AS (
+      SELECT user_id, match_id, MAX(points) as points, MAX(is_exact) as is_exact, MAX(is_correct_result) as is_correct_result, MAX(bonus_used) as bonus_used
+      FROM predictions
+      GROUP BY user_id, match_id
+    )
     SELECT
       users.id as user_id,
       users.nickname,
-      COALESCE(SUM(predictions.points), 0) as points,
-      COALESCE(SUM(predictions.is_exact), 0) as exact_scores,
-      COALESCE(SUM(predictions.is_correct_result), 0) as correct_results,
-      COUNT(predictions.id) as predictions_count,
-      2 - COALESCE(SUM(CASE WHEN predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' THEN 1 ELSE 0 END), 0) as bonuses_remaining
+      COALESCE(SUM(global_predictions.points), 0) as points,
+      COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores,
+      COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results,
+      COUNT(global_predictions.match_id) as predictions_count,
+      MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') OR matches.kickoff_at <= datetime('now') OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
     FROM league_members
     JOIN users ON users.id = league_members.user_id
-    LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id
-    LEFT JOIN matches ON matches.id = predictions.match_id
+    LEFT JOIN global_predictions ON global_predictions.user_id = users.id
+    LEFT JOIN matches ON matches.id = global_predictions.match_id
     WHERE league_members.league_id = ? AND league_members.removed_at IS NULL
     GROUP BY users.id
   `).bind(leagueId).all<Omit<LeaderboardRow, "rank">>();
@@ -94,9 +99,11 @@ async function provisionalLiveLeaderboard(env: Env, leagueId: string, official: 
     if (!liveScore) continue;
 
     const rows = await env.DB.prepare(`
-      SELECT user_id, home_score, away_score, bonus_used
+      SELECT predictions.user_id, MAX(predictions.home_score) as home_score, MAX(predictions.away_score) as away_score, MAX(predictions.bonus_used) as bonus_used
       FROM predictions
-      WHERE league_id = ? AND match_id = ?
+      JOIN league_members ON league_members.user_id = predictions.user_id AND league_members.league_id = ? AND league_members.removed_at IS NULL
+      WHERE predictions.match_id = ?
+      GROUP BY predictions.user_id
     `).bind(leagueId, match.id).all<{ user_id: string; home_score: number; away_score: number; bonus_used: number }>();
 
     for (const prediction of rows.results ?? []) {
@@ -168,10 +175,15 @@ async function predictionsForMatch(env: Env, leagueId: string, match: MatchRow) 
 
   const liveScore = scoreForLiveMatch(match);
   const rows = await env.DB.prepare(`
-    SELECT users.id as user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points, predictions.bonus_used
+    WITH global_predictions AS (
+      SELECT user_id, match_id, MAX(home_score) as home_score, MAX(away_score) as away_score, MAX(points) as points, MAX(bonus_used) as bonus_used
+      FROM predictions
+      GROUP BY user_id, match_id
+    )
+    SELECT users.id as user_id, users.nickname, global_predictions.home_score, global_predictions.away_score, global_predictions.points, global_predictions.bonus_used
     FROM league_members
     JOIN users ON users.id = league_members.user_id
-    LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id AND predictions.match_id = ?
+    LEFT JOIN global_predictions ON global_predictions.user_id = users.id AND global_predictions.match_id = ?
     WHERE league_members.league_id = ? AND league_members.removed_at IS NULL
     ORDER BY users.nickname ASC
   `).bind(match.id, leagueId).all<PredictionRow>();

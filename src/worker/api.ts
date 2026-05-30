@@ -63,7 +63,21 @@ export async function joinLeague(request: Request, env: Env) {
 
 export async function leaderboard(request: Request, env: Env, leagueId: string) {
   if (!(await requireUser(request, env))) return badRequest("Not authenticated.", 401);
-  const rows = await env.DB.prepare(`SELECT users.id, users.nickname, COALESCE(SUM(predictions.points), 0) as points, COALESCE(SUM(predictions.is_exact), 0) as exact_scores, COALESCE(SUM(predictions.is_correct_result), 0) as correct_results, COUNT(predictions.id) as predictions_count, 2 - COALESCE(SUM(CASE WHEN predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' THEN 1 ELSE 0 END), 0) as bonuses_remaining FROM league_members JOIN users ON users.id = league_members.user_id LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id LEFT JOIN matches ON matches.id = predictions.match_id WHERE league_members.league_id = ? AND league_members.removed_at IS NULL GROUP BY users.id ORDER BY points DESC, exact_scores DESC, correct_results DESC, predictions_count DESC, users.nickname ASC`).bind(leagueId).all();
+  const rows = await env.DB.prepare(`
+    WITH global_predictions AS (
+      SELECT user_id, match_id, MAX(points) as points, MAX(is_exact) as is_exact, MAX(is_correct_result) as is_correct_result, MAX(bonus_used) as bonus_used
+      FROM predictions
+      GROUP BY user_id, match_id
+    )
+    SELECT users.id, users.nickname, COALESCE(SUM(global_predictions.points), 0) as points, COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores, COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results, COUNT(global_predictions.match_id) as predictions_count, MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
+    FROM league_members
+    JOIN users ON users.id = league_members.user_id
+    LEFT JOIN global_predictions ON global_predictions.user_id = users.id
+    LEFT JOIN matches ON matches.id = global_predictions.match_id
+    WHERE league_members.league_id = ? AND league_members.removed_at IS NULL
+    GROUP BY users.id
+    ORDER BY points DESC, exact_scores DESC, correct_results DESC, predictions_count DESC, users.nickname ASC
+  `).bind(nowIso(), leagueId).all();
   return json({ leaderboard: rows.results ?? [] });
 }
 
@@ -110,7 +124,7 @@ export async function myPredictions(request: Request, env: Env, leagueId: string
   if (!user) return badRequest("Not authenticated.", 401);
   const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
   if (!membership) return badRequest("You are not a member of this league.", 403);
-  const rows = await env.DB.prepare("SELECT match_id, home_score, away_score, points, bonus_used, updated_at FROM predictions WHERE league_id = ? AND user_id = ?").bind(leagueId, user.id).all();
+  const rows = await env.DB.prepare("SELECT match_id, MAX(home_score) as home_score, MAX(away_score) as away_score, MAX(points) as points, MAX(bonus_used) as bonus_used, MAX(updated_at) as updated_at FROM predictions WHERE user_id = ? GROUP BY match_id").bind(user.id).all();
   return json({ predictions: rows.results ?? [] });
 }
 
@@ -133,10 +147,15 @@ export async function upsertPrediction(request: Request, env: Env, leagueId: str
   const useBonus = body.useBonus === true;
   if (useBonus) {
     if (!isGroupStage(match.stage)) return badRequest("The x5 bonus can only be used during the group stage.", 409);
-    const usage = await env.DB.prepare("SELECT COUNT(*) as count FROM predictions JOIN matches ON matches.id = predictions.match_id WHERE predictions.league_id = ? AND predictions.user_id = ? AND predictions.bonus_used = 1 AND predictions.match_id != ? AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%'").bind(leagueId, user.id, body.matchId).first<{ count: number }>();
+    const usage = await env.DB.prepare("SELECT COUNT(DISTINCT predictions.match_id) as count FROM predictions JOIN matches ON matches.id = predictions.match_id WHERE predictions.user_id = ? AND predictions.bonus_used = 1 AND predictions.match_id != ? AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%'").bind(user.id, body.matchId).first<{ count: number }>();
     if (Number(usage?.count ?? 0) >= 2) return badRequest("You have already used your two group-stage x5 bonuses.", 409);
   }
-  await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, bonus_used, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(league_id, user_id, match_id) DO UPDATE SET home_score = excluded.home_score, away_score = excluded.away_score, bonus_used = excluded.bonus_used, updated_at = excluded.updated_at`).bind(crypto.randomUUID(), leagueId, user.id, body.matchId, homeScore, awayScore, useBonus ? 1 : 0, nowIso(), nowIso()).run();
+  const existing = await env.DB.prepare("SELECT id FROM predictions WHERE user_id = ? AND match_id = ? LIMIT 1").bind(user.id, body.matchId).first<{ id: string }>();
+  if (existing) {
+    await env.DB.prepare("UPDATE predictions SET home_score = ?, away_score = ?, bonus_used = ?, updated_at = ? WHERE user_id = ? AND match_id = ?").bind(homeScore, awayScore, useBonus ? 1 : 0, nowIso(), user.id, body.matchId).run();
+  } else {
+    await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, bonus_used, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), leagueId, user.id, body.matchId, homeScore, awayScore, useBonus ? 1 : 0, nowIso(), nowIso()).run();
+  }
   return json({ ok: true });
 }
 
@@ -147,10 +166,55 @@ export async function matchPredictions(request: Request, env: Env, leagueId: str
   if (!match) return badRequest("Match not found.", 404);
   const hasStarted = matchLocksPredictions(match);
   const query = hasStarted
-    ? "SELECT users.id as user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points, predictions.bonus_used FROM league_members JOIN users ON users.id = league_members.user_id LEFT JOIN predictions ON predictions.user_id = users.id AND predictions.league_id = league_members.league_id AND predictions.match_id = ? WHERE league_members.league_id = ? AND league_members.removed_at IS NULL ORDER BY users.nickname ASC"
-    : "SELECT predictions.user_id, users.nickname, predictions.home_score, predictions.away_score, predictions.points, predictions.bonus_used FROM predictions JOIN users ON users.id = predictions.user_id WHERE predictions.league_id = ? AND predictions.match_id = ? AND predictions.user_id = ? ORDER BY users.nickname ASC";
-  const rows = hasStarted ? await env.DB.prepare(query).bind(matchId, leagueId).all() : await env.DB.prepare(query).bind(leagueId, matchId, user.id).all();
+    ? "WITH global_predictions AS (SELECT user_id, match_id, MAX(home_score) as home_score, MAX(away_score) as away_score, MAX(points) as points, MAX(bonus_used) as bonus_used FROM predictions GROUP BY user_id, match_id) SELECT users.id as user_id, users.nickname, global_predictions.home_score, global_predictions.away_score, global_predictions.points, global_predictions.bonus_used FROM league_members JOIN users ON users.id = league_members.user_id LEFT JOIN global_predictions ON global_predictions.user_id = users.id AND global_predictions.match_id = ? WHERE league_members.league_id = ? AND league_members.removed_at IS NULL ORDER BY users.nickname ASC"
+    : "SELECT predictions.user_id, users.nickname, MAX(predictions.home_score) as home_score, MAX(predictions.away_score) as away_score, MAX(predictions.points) as points, MAX(predictions.bonus_used) as bonus_used FROM predictions JOIN users ON users.id = predictions.user_id WHERE predictions.match_id = ? AND predictions.user_id = ? GROUP BY predictions.user_id ORDER BY users.nickname ASC";
+  const rows = hasStarted ? await env.DB.prepare(query).bind(matchId, leagueId).all() : await env.DB.prepare(query).bind(matchId, user.id).all();
   return json({ visibleToAll: hasStarted, predictions: rows.results ?? [] });
+}
+
+export async function globalLeaderboard(request: Request, env: Env) {
+  if (!(await requireUser(request, env))) return badRequest("Not authenticated.", 401);
+  const rows = await env.DB.prepare(`
+    WITH global_predictions AS (
+      SELECT user_id, match_id, MAX(points) as points, MAX(is_exact) as is_exact, MAX(is_correct_result) as is_correct_result, MAX(bonus_used) as bonus_used
+      FROM predictions
+      GROUP BY user_id, match_id
+    )
+    SELECT users.id as user_id, users.nickname, COALESCE(SUM(global_predictions.points), 0) as points, COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores, COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results, COUNT(global_predictions.match_id) as predictions_count, MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
+    FROM users
+    LEFT JOIN global_predictions ON global_predictions.user_id = users.id
+    LEFT JOIN matches ON matches.id = global_predictions.match_id
+    GROUP BY users.id
+    ORDER BY points DESC, exact_scores DESC, correct_results DESC, predictions_count DESC, users.nickname ASC
+  `).bind(nowIso()).all();
+  return json({ leaderboard: (rows.results ?? []).map((row, index) => ({ ...row, rank: index + 1, official_rank: index + 1, rank_delta: 0, movement_type: "last_match" })) });
+}
+
+export async function globalUserPredictions(request: Request, env: Env, userId: string) {
+  if (!(await requireUser(request, env))) return badRequest("Not authenticated.", 401);
+  const rows = await env.DB.prepare(`
+    WITH global_predictions AS (
+      SELECT user_id, match_id, MAX(home_score) as home_score, MAX(away_score) as away_score, MAX(points) as points, MAX(bonus_used) as bonus_used
+      FROM predictions
+      WHERE user_id = ?
+      GROUP BY user_id, match_id
+    )
+    SELECT matches.id as match_id, matches.external_id, matches.home_team, matches.away_team, matches.home_team_logo, matches.away_team_logo, matches.kickoff_at, matches.stage, matches.group_name, matches.status, matches.final_home, matches.final_away, matches.score_90_home, matches.score_90_away, matches.score_120_home, matches.score_120_away, matches.manual_final_home, matches.manual_final_away, matches.score_source, matches.live_home_score, matches.live_away_score, matches.live_minute, matches.points_multiplier, global_predictions.home_score, global_predictions.away_score, global_predictions.points, global_predictions.bonus_used
+    FROM matches
+    JOIN global_predictions ON global_predictions.match_id = matches.id
+    WHERE matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL
+    ORDER BY matches.kickoff_at DESC
+  `).bind(userId, nowIso()).all<MatchRow & { match_id: string; home_score: number; away_score: number; points: number | null; bonus_used: number | null }>();
+  return json({ predictions: (rows.results ?? []).map((row) => {
+    const isLive = ["live", "in_play", "1h", "2h", "ht", "et", "penalties", "extra_time"].includes(row.status.toLowerCase());
+    const score = isLive && row.live_home_score !== null && row.live_away_score !== null
+      ? { home: row.live_home_score, away: row.live_away_score }
+      : null;
+    const livePoints = score
+      ? calculatePredictionPoints({ predictedHome: row.home_score, predictedAway: row.away_score, finalHome: score.home, finalAway: score.away, multiplier: row.points_multiplier, bonusMultiplier: row.bonus_used && isGroupStage(row.stage) ? 5 : 1 }).points
+      : row.points;
+    return { ...row, points: livePoints };
+  }) });
 }
 
 export async function removeLeagueMember(request: Request, env: Env, leagueId: string, userId: string) {

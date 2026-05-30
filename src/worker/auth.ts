@@ -104,7 +104,7 @@ async function createSession(request: Request, env: Env, userId: string) {
 export async function requestMagicLink(request: Request, env: Env) {
   const { email, turnstileToken } = await readJson<MagicLinkRequest>(request);
   const normalizedEmail = email?.trim().toLowerCase();
-  if (!normalizedEmail || !normalizedEmail.includes("@")) {
+  if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     return json({ error: "Invalid email address." }, { status: 400 });
   }
 

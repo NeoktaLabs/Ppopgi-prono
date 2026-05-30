@@ -3,6 +3,8 @@ import { requestMagicLink, verifyMagicLink, logout, verifyGatewayTurnstile, devL
 import { badRequest, json } from "./utils";
 import {
   createLeague,
+  globalLeaderboard,
+  globalUserPredictions,
   joinLeague,
   leaderboard,
   listMatches,
@@ -53,6 +55,10 @@ async function handleApi(request: Request, env: Env) {
 
   if (request.method === "POST" && pathname === "/api/leagues") return createLeague(request, env);
   if (request.method === "POST" && pathname === "/api/leagues/join") return joinLeague(request, env);
+  if (request.method === "GET" && pathname === "/api/global/leaderboard") return globalLeaderboard(request, env);
+
+  const globalUserPredictionParams = routeParams(pathname, /^\/api\/global\/users\/([^/]+)\/predictions$/);
+  if (request.method === "GET" && globalUserPredictionParams) return globalUserPredictions(request, env, globalUserPredictionParams[0]);
 
   const leagueHomeParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/home$/);
   if (request.method === "GET" && leagueHomeParams) return leagueHome(request, env, leagueHomeParams[0]);
