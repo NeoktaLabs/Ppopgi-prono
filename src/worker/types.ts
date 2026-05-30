@@ -11,6 +11,7 @@ export type Env = {
   EMAIL_FROM: string;
   EMAIL_FROM_NAME?: string;
   EMAIL_REPLY_TO?: string;
+  RESEND_API_KEY?: string;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
   DEV_AUTH_BYPASS?: string;
@@ -18,7 +19,6 @@ export type Env = {
   FOOTBALL_API_BASE_URL?: string;
   FOOTBALL_API_LEAGUE_ID?: string;
   FOOTBALL_API_SEASON?: string;
-  EMAIL?: { send: (message: unknown) => Promise<void> };
 };
 
 export type User = {

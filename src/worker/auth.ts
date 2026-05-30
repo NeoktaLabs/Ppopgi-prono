@@ -153,7 +153,7 @@ export async function requestMagicLink(request: Request, env: Env) {
     await sendMagicLinkEmail(env, normalizedEmail, verifyUrl);
   } catch (error) {
     console.error("Magic link email failed", { to: normalizedEmail, error: errorMessage(error) });
-    return json({ error: "Magic link email failed. Check Worker logs and Cloudflare Email sender configuration." }, { status: 502 });
+    return json({ error: "Magic link email failed. Check Worker logs and Resend configuration." }, { status: 502 });
   }
 
   return json({ ok: true });
@@ -189,26 +189,30 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
   </body>
 </html>`;
 
-  if (!env.EMAIL?.send) {
-    throw new Error("Cloudflare Email binding EMAIL is not configured.");
+  if (!env.RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY is not configured.");
   }
 
-  const message = {
-    from: {
-      email: env.EMAIL_FROM,
-      name: env.EMAIL_FROM_NAME || env.APP_NAME,
-    },
-    to,
-    replyTo: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
+  const payload = {
+    from: env.EMAIL_FROM_NAME ? `${env.EMAIL_FROM_NAME} <${env.EMAIL_FROM}>` : env.EMAIL_FROM,
+    to: [to],
+    reply_to: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
     subject,
     text,
+    html,
   };
 
-  try {
-    await env.EMAIL.send({ ...message, html });
-  } catch (error) {
-    console.error("HTML magic link email failed, retrying text-only", { to, error: errorMessage(error) });
-    await env.EMAIL.send(message);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Resend email failed (${response.status}): ${await response.text()}`);
   }
 }
 
