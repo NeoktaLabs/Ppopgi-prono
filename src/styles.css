@@ -438,5 +438,54 @@ body{overflow-x:hidden}
   .global-prediction-card{padding:.9rem 4.6rem .9rem .8rem}
   .global-prediction-card .teams{gap:.35rem}
   .global-me-row{margin-top:.45rem}
-  .global-prediction-modal{max-height:86vh;padding:1rem;border-radius:20px}
+.global-prediction-modal{max-height:86vh;padding:1rem;border-radius:20px}
+}
+
+/* Final lobby, footer, and prediction sizing polish */
+.app-footer a{color:#fff;text-decoration:none}
+.app-footer a:hover{text-decoration:underline}
+.footer-actions{display:flex;align-items:center;justify-content:center;gap:.55rem;flex-wrap:wrap;margin-top:.55rem}
+.footer-actions .donate-button,.footer-contact-button{display:inline-flex;align-items:center;justify-content:center;min-width:6.25rem;min-height:2.35rem;margin:0;padding:.52rem .9rem;border-radius:999px;line-height:1;text-align:center}
+.footer-contact-button{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:#fff;text-decoration:none;font-weight:950}
+.footer-contact-button:hover{background:rgba(255,255,255,.16);text-decoration:none!important}
+.donate-page{min-height:100vh}
+.donate-story-card{width:min(760px,calc(100% - 2rem));margin:2rem auto 0;padding:clamp(1.25rem,4vw,2.2rem);border-radius:30px;background:linear-gradient(145deg,#fff,#f8fbff);border:1px solid #dce6f3;box-shadow:0 28px 70px rgba(6,23,53,.14)}
+.donate-story-card h1{max-width:10ch;color:var(--night)!important}
+.donate-story-copy{display:grid;gap:.95rem;margin:1.1rem 0 1.35rem;padding:1.1rem;border-left:.32rem solid var(--pitch);border-radius:0 22px 22px 0;background:#f8fbff;color:#24364f;font-family:"Segoe Print","Bradley Hand","Comic Sans MS",cursive;font-size:clamp(1.05rem,2.1vw,1.32rem);line-height:1.45}
+.donate-story-copy p{margin:0}
+.donate-story-actions{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
+.donate-story-actions .donate-button{margin:0}
+.hub-leagues-panel{background:linear-gradient(135deg,#061735,#102e63)!important;color:#fff!important;border-color:rgba(255,255,255,.14)!important}
+.hub-leagues-panel .section-title>span{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18);color:#fff}
+.hub-leagues-panel h2,.hub-leagues-panel .league-name{color:#fff!important}
+.hub-leagues-panel .section-title p,.hub-leagues-panel .muted{color:#c9d8eb!important}
+.hub-leagues-panel .league-list li{background:rgba(255,255,255,.1)!important;border-color:rgba(255,255,255,.14)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 16px 34px rgba(0,0,0,.12)!important}
+.hub-leagues-panel .league-meta span{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.14);color:#dce8f8}
+.hub-leagues-panel .league-meta b{color:var(--pitch)}
+.hub-leagues-panel .league-list li button{background:var(--pitch)!important;color:#041225!important}
+.hub-action-card:nth-child(1){background:linear-gradient(145deg,#fff,#ecfdf3)!important;border-color:rgba(31,211,107,.26)!important}
+.hub-action-card:nth-child(2){background:linear-gradient(145deg,#fff,#fff1f3)!important;border-color:rgba(255,77,94,.22)!important}
+.hub-action-card:nth-child(1)::after,.hub-action-card:nth-child(2)::after{content:"";position:absolute;right:-2.4rem;bottom:-2.7rem;width:8rem;height:8rem;border-radius:999px;pointer-events:none}
+.hub-action-card:nth-child(1)::after{background:rgba(31,211,107,.12)}
+.hub-action-card:nth-child(2)::after{background:rgba(255,77,94,.1)}
+.teams .team-name{font-size:.9rem!important;font-weight:900!important;line-height:1.05!important}
+.teams .flag-slot{width:2rem!important;height:2rem!important}
+.score-predictor{grid-template-columns:3.7rem auto 3.7rem!important;min-width:8.4rem!important;gap:.38rem!important;padding:.3rem!important}
+.score-predictor input{width:3.7rem!important;height:3rem!important;font-size:1.24rem!important}
+@media(max-width:900px){
+  .donate-story-card{width:calc(100% - 1.2rem);margin-top:1rem;border-radius:24px}
+  .donate-story-card h1{font-size:2.4rem}
+  .donate-story-copy{font-size:1.06rem;padding:.95rem}
+  .hub-leagues-panel,.hub-action-card{border-radius:24px!important}
+  .teams .team-name{grid-template-columns:1fr!important;justify-items:center!important;gap:.32rem!important;font-size:.78rem!important;line-height:1.02!important;max-width:5.1rem!important;text-align:center!important}
+  .teams .team-name>span:last-child{display:block;max-width:100%;overflow-wrap:anywhere;hyphens:auto}
+  .teams .flag-slot{width:2rem!important;height:2rem!important}
+  .score-predictor{grid-template-columns:3.25rem auto 3.25rem!important;min-width:7.45rem!important;padding:.28rem!important}
+  .score-predictor input{width:3.25rem!important;height:2.95rem!important;font-size:1.22rem!important}
+}
+@media(max-width:380px){
+  .teams .team-name{font-size:.72rem!important;max-width:4.65rem!important}
+  .teams .flag-slot{width:1.9rem!important;height:1.9rem!important}
+  .score-predictor{grid-template-columns:3.05rem auto 3.05rem!important;min-width:7rem!important}
+  .score-predictor input{width:3.05rem!important;height:2.78rem!important;font-size:1.16rem!important}
 }
