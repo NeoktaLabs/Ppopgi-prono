@@ -1,6 +1,7 @@
 import type { Env, MatchRow } from "./types";
 import { badRequest, json, nowIso, randomCode, readJson, requireUser } from "./utils";
 import { calculatePredictionPoints, isGroupStage, multiplierForStage, usableFinalScore } from "./scoring";
+import { clearPendingSignupCookie, createSession, findOrCreateUser, pendingSignupEmail } from "./auth";
 
 function isGlobalAdmin(env: Env, email: string) {
   return (env.GLOBAL_ADMIN_EMAILS ?? "")
@@ -12,17 +13,30 @@ function isGlobalAdmin(env: Env, email: string) {
 
 export async function me(request: Request, env: Env) {
   const user = await requireUser(request, env);
-  if (!user) return json({ user: null, leagues: [] });
+  if (!user) {
+    const pending = await pendingSignupEmail(request, env);
+    return json({ user: null, leagues: [], pendingEmail: pending?.email ?? null });
+  }
   const leagues = await env.DB.prepare(`SELECT leagues.id, leagues.name, leagues.code, league_members.role FROM league_members JOIN leagues ON leagues.id = league_members.league_id WHERE league_members.user_id = ? AND league_members.removed_at IS NULL ORDER BY league_members.joined_at DESC`).bind(user.id).all();
   return json({ user: { ...user, is_global_admin: isGlobalAdmin(env, user.email) }, leagues: leagues.results ?? [] });
 }
 
 export async function updateProfile(request: Request, env: Env) {
   const user = await requireUser(request, env);
-  if (!user) return badRequest("Not authenticated.", 401);
   const { nickname } = await readJson<{ nickname?: string }>(request);
   const clean = nickname?.trim();
-  if (!clean || clean.length < 2 || clean.length > 15) return badRequest("Nickname must be between 2 and 15 characters.");
+  if (!clean || clean.length < 3 || clean.length > 13) return badRequest("Pseudo must be between 3 and 13 characters.");
+  if (!user) {
+    const pending = await pendingSignupEmail(request, env);
+    if (!pending) return badRequest("Not authenticated.", 401);
+    const created = await findOrCreateUser(env, pending.email, clean);
+    const { sessionToken, sessionDays } = await createSession(request, env, created.id);
+    await env.DB.prepare("UPDATE pending_signups SET used_at = ? WHERE id = ?").bind(nowIso(), pending.id).run();
+    const headers = new Headers({ "Content-Type": "application/json; charset=utf-8" });
+    headers.append("Set-Cookie", `session=${encodeURIComponent(sessionToken)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${sessionDays * 24 * 60 * 60}`);
+    headers.append("Set-Cookie", clearPendingSignupCookie());
+    return new Response(JSON.stringify({ ok: true }), { headers });
+  }
   await env.DB.prepare("UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?").bind(clean, nowIso(), user.id).run();
   return json({ ok: true });
 }
@@ -119,11 +133,13 @@ export async function todayMatches(env: Env) {
   return json({ matches: matches.map(withEffectiveScore) });
 }
 
-export async function myPredictions(request: Request, env: Env, leagueId: string) {
+export async function myPredictions(request: Request, env: Env, leagueId?: string) {
   const user = await requireUser(request, env);
   if (!user) return badRequest("Not authenticated.", 401);
-  const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
-  if (!membership) return badRequest("You are not a member of this league.", 403);
+  if (leagueId) {
+    const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
+    if (!membership) return badRequest("You are not a member of this league.", 403);
+  }
   const rows = await env.DB.prepare("SELECT match_id, MAX(home_score) as home_score, MAX(away_score) as away_score, MAX(points) as points, MAX(bonus_used) as bonus_used, MAX(updated_at) as updated_at FROM predictions WHERE user_id = ? GROUP BY match_id").bind(user.id).all();
   return json({ predictions: rows.results ?? [] });
 }
@@ -132,15 +148,17 @@ function parseScore(value: unknown) {
   return Number.isInteger(value) && typeof value === "number" && value >= 0 ? value : null;
 }
 
-export async function upsertPrediction(request: Request, env: Env, leagueId: string) {
+export async function upsertPrediction(request: Request, env: Env, leagueId?: string) {
   const user = await requireUser(request, env);
   if (!user) return badRequest("Not authenticated.", 401);
   const body = await readJson<{ matchId?: string; homeScore?: unknown; awayScore?: unknown; useBonus?: boolean }>(request);
   const homeScore = parseScore(body.homeScore);
   const awayScore = parseScore(body.awayScore);
   if (!body.matchId || homeScore === null || awayScore === null) return badRequest("Prediction is incomplete.");
-  const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
-  if (!membership) return badRequest("You are not a member of this league.", 403);
+  if (leagueId) {
+    const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
+    if (!membership) return badRequest("You are not a member of this league.", 403);
+  }
   const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(body.matchId).first<MatchRow>();
   if (!match) return badRequest("Match not found.", 404);
   if (matchLocksPredictions(match)) return badRequest("This match is locked because kickoff has passed or a final score has been set.", 409);
@@ -154,7 +172,7 @@ export async function upsertPrediction(request: Request, env: Env, leagueId: str
   if (existing) {
     await env.DB.prepare("UPDATE predictions SET home_score = ?, away_score = ?, bonus_used = ?, updated_at = ? WHERE user_id = ? AND match_id = ?").bind(homeScore, awayScore, useBonus ? 1 : 0, nowIso(), user.id, body.matchId).run();
   } else {
-    await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, bonus_used, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), leagueId, user.id, body.matchId, homeScore, awayScore, useBonus ? 1 : 0, nowIso(), nowIso()).run();
+    await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, bonus_used, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), leagueId ?? null, user.id, body.matchId, homeScore, awayScore, useBonus ? 1 : 0, nowIso(), nowIso()).run();
   }
   return json({ ok: true });
 }

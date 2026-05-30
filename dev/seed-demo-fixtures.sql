@@ -82,7 +82,7 @@ INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_scor
   ('demo-pred-ben-live-semi', 'demo-league', 'demo-ben', 'demo-match-live-semi', 1, 2, 0, 0, 0, 0, strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now')),
   ('demo-pred-admin-future-group', 'demo-league', 'demo-admin', 'demo-match-future-group', 1, 0, 0, 0, 0, 0, strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now')),
   ('demo-pred-admin-future-final', 'demo-league', 'demo-admin', 'demo-match-future-final', 2, 1, 0, 0, 0, 0, strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now'))
-ON CONFLICT(league_id, user_id, match_id) DO UPDATE SET
+ON CONFLICT(user_id, match_id) DO UPDATE SET
   home_score = excluded.home_score,
   away_score = excluded.away_score,
   points = excluded.points,

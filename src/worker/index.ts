@@ -90,6 +90,8 @@ async function handleApi(request: Request, env: Env) {
 
   if (request.method === "GET" && pathname === "/api/worldcup/matches") return listMatches(env);
   if (request.method === "GET" && pathname === "/api/worldcup/today") return todayMatches(env);
+  if (request.method === "GET" && pathname === "/api/predictions/me") return myPredictions(request, env);
+  if (request.method === "POST" && pathname === "/api/predictions") return upsertPrediction(request, env);
 
   const globalManualScoreParams = routeParams(pathname, /^\/api\/admin\/matches\/([^/]+)\/manual-score$/);
   if (globalManualScoreParams) {

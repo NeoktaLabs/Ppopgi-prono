@@ -1,5 +1,5 @@
 import type { Env, User } from "./types";
-import { addDays, addMinutes, clearSessionCookie, json, nowIso, randomToken, readJson, sessionCookie, sha256 } from "./utils";
+import { addDays, addMinutes, clearSessionCookie, getCookie, json, nowIso, randomToken, readJson, sessionCookie, sha256 } from "./utils";
 
 type MagicLinkRequest = {
   email?: string;
@@ -56,7 +56,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function findOrCreateUser(env: Env, email: string, nickname?: string | null) {
+export async function findOrCreateUser(env: Env, email: string, nickname?: string | null) {
   let user = await env.DB.prepare("SELECT id, email, nickname FROM users WHERE email = ?")
     .bind(email)
     .first<User>();
@@ -79,7 +79,7 @@ async function findOrCreateUser(env: Env, email: string, nickname?: string | nul
   return user;
 }
 
-async function createSession(request: Request, env: Env, userId: string) {
+export async function createSession(request: Request, env: Env, userId: string) {
   const sessionToken = randomToken();
   const sessionHash = await sha256(sessionToken);
   const sessionDays = Number(env.SESSION_DAYS || 90);
@@ -99,6 +99,24 @@ async function createSession(request: Request, env: Env, userId: string) {
   ).run();
 
   return { sessionToken, sessionDays };
+}
+
+function pendingSignupCookie(token: string, maxAgeSeconds: number) {
+  return `pending_signup=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
+}
+
+export function clearPendingSignupCookie() {
+  return "pending_signup=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0";
+}
+
+export async function pendingSignupEmail(request: Request, env: Env) {
+  const token = getCookie(request, "pending_signup");
+  if (!token) return null;
+  const tokenHash = await sha256(token);
+  return await env.DB.prepare(`
+    SELECT id, email FROM pending_signups
+    WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+  `).bind(tokenHash, nowIso()).first<{ id: string; email: string }>();
 }
 
 export async function requestMagicLink(request: Request, env: Env) {
@@ -211,8 +229,28 @@ export async function verifyMagicLink(request: Request, env: Env) {
     .bind(nowIso(), link.id)
     .run();
 
-  const user = await findOrCreateUser(env, link.email);
-  const { sessionToken, sessionDays } = await createSession(request, env, user.id);
+  const existingUser = await env.DB.prepare("SELECT id FROM users WHERE email = ?")
+    .bind(link.email)
+    .first<{ id: string }>();
+
+  if (!existingUser) {
+    const pendingToken = randomToken();
+    const pendingHash = await sha256(pendingToken);
+    await env.DB.prepare(`
+      INSERT INTO pending_signups (id, email, token_hash, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(crypto.randomUUID(), link.email, pendingHash, addMinutes(Number(env.MAGIC_LINK_MINUTES || 15)), nowIso()).run();
+
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: "/",
+        "Set-Cookie": pendingSignupCookie(pendingToken, Number(env.MAGIC_LINK_MINUTES || 15) * 60),
+      },
+    });
+  }
+
+  const { sessionToken, sessionDays } = await createSession(request, env, existingUser.id);
 
   return new Response(null, {
     status: 302,
@@ -235,8 +273,8 @@ export async function devLogin(request: Request, env: Env) {
   }
 
   const nicknameParam = url.searchParams.get("nickname")?.trim();
-  const fallbackNickname = email.split("@")[0].replace(/[^a-z0-9_-]/gi, "").slice(0, 15) || "Codex";
-  const nickname = (nicknameParam || fallbackNickname).slice(0, 15);
+  const fallbackNickname = email.split("@")[0].replace(/[^a-z0-9_-]/gi, "").slice(0, 13) || "Codex";
+  const nickname = (nicknameParam || fallbackNickname).slice(0, 13);
   const user = await findOrCreateUser(env, email, nickname);
   const { sessionToken, sessionDays } = await createSession(request, env, user.id);
 
@@ -276,5 +314,8 @@ export async function logout(request: Request, env: Env) {
   if (token) {
     await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256(decodeURIComponent(token))).run();
   }
-  return json({ ok: true }, { headers: { "Set-Cookie": clearSessionCookie() } });
+  const headers = new Headers({ "Content-Type": "application/json; charset=utf-8" });
+  headers.append("Set-Cookie", clearSessionCookie());
+  headers.append("Set-Cookie", clearPendingSignupCookie());
+  return new Response(JSON.stringify({ ok: true }), { headers });
 }
