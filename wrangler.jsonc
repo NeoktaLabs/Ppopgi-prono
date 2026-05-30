@@ -27,7 +27,7 @@
   "send_email": [
     {
       "name": "EMAIL",
-      "allowed_sender_addresses": ["do-not-reply@oddzz.xyz"]
+      "allowed_sender_addresses": ["do-not-reply@neokta.com"]
     }
   ],
   "triggers": {
@@ -43,10 +43,10 @@
     "FOOTBALL_API_BASE_URL": "https://v3.football.api-sports.io",
     "FOOTBALL_API_LEAGUE_ID": "1",
     "FOOTBALL_API_SEASON": "2026",
-    "GLOBAL_ADMIN_EMAILS": "tech@ppopgi.xyz",
-    "EMAIL_FROM": "do-not-reply@oddzz.xyz",
+    "GLOBAL_ADMIN_EMAILS": "labs@neokta.com",
+    "EMAIL_FROM": "do-not-reply@neokta.com",
     "EMAIL_FROM_NAME": "Oddzz Auth",
-    "EMAIL_REPLY_TO": "do-not-reply@oddzz.xyz",
+    "EMAIL_REPLY_TO": "do-not-reply@neokta.com",
     "TURNSTILE_SITE_KEY": "0x4AAAAAADXGbNGDwM2GQXFb",
     "DEV_AUTH_BYPASS": "0"
   }
