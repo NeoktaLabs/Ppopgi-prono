@@ -374,3 +374,38 @@ body{overflow-x:hidden}
   .live-match-card{padding-right:4.9rem}
   .match-card.is-started .prediction-list.expanded{margin:.05rem .62rem .82rem 1rem;padding:.78rem .62rem}
 }
+
+/* Mobile readability pass */
+@media(max-width:900px){
+  .leaderboard-table .leaderboard-row{grid-template-columns:1.45rem minmax(0,6.25rem) 2.25rem 2.35rem 3.15rem 1.85rem!important;gap:.12rem}
+  .leaderboard-head{font-size:.58rem!important;letter-spacing:.015em!important;line-height:1.08!important}
+  .leaderboard-head>span{text-align:center!important;justify-self:center!important}
+  .leaderboard-head span[data-short]::after{font-size:.58rem!important}
+  .leaderboard-row strong{font-size:.94rem!important;text-align:center!important;justify-self:center!important}
+  .leaderboard-row:not(.leaderboard-head)>span:nth-child(n+3):not(.movement){font-size:.9rem!important}
+  .leaderboard-row:not(.leaderboard-head)>span:nth-child(5){font-size:.78rem!important}
+  .leaderboard-row:not(.leaderboard-head)>span:not(.rank),.leaderboard-row:not(.leaderboard-head)>.movement{text-align:center!important;justify-self:center!important}
+  .movement{font-size:.55rem!important}
+  .match-card:not(.is-started) .match-main{padding-left:.82rem;padding-right:.82rem}
+  .match-date{font-size:.94rem}
+  .match-meta{font-size:.76rem}
+  .teams .team-name{font-size:1.08rem!important;line-height:1.08!important}
+  .teams .flag-slot{width:1.82rem!important;height:1.82rem!important}
+  .score-predictor{grid-template-columns:3.15rem auto 3.15rem!important;min-width:7.25rem!important;gap:.3rem!important;padding:.26rem!important;border-radius:19px!important}
+  .score-predictor input{width:3.15rem!important;height:2.85rem!important;font-size:1.2rem!important;border-radius:16px!important}
+  .score-predictor>span{font-size:1.12rem}
+  .match-card .match-countdown{font-size:.72rem!important}
+  .match-rules li{font-size:.76rem!important}
+}
+
+@media(max-width:380px){
+  .leaderboard-table .leaderboard-row{grid-template-columns:1.35rem minmax(0,5.55rem) 2.05rem 2.15rem 2.95rem 1.65rem!important}
+  .leaderboard-head{font-size:.52rem!important}
+  .leaderboard-head span[data-short]::after{font-size:.52rem!important}
+  .leaderboard-row strong{font-size:.88rem!important}
+  .leaderboard-row:not(.leaderboard-head)>span:nth-child(n+3):not(.movement){font-size:.84rem!important}
+  .teams .team-name{font-size:1.02rem!important}
+  .teams .flag-slot{width:1.7rem!important;height:1.7rem!important}
+  .score-predictor{grid-template-columns:2.95rem auto 2.95rem!important;min-width:6.82rem!important}
+  .score-predictor input{width:2.95rem!important;height:2.7rem!important;font-size:1.14rem!important}
+}
