@@ -11,6 +11,14 @@ function isGlobalAdmin(env: Env, email: string) {
     .includes(email.toLowerCase());
 }
 
+async function isNicknameTaken(env: Env, nickname: string, exceptUserId?: string) {
+  const normalized = nickname.trim().toLowerCase();
+  const row = exceptUserId
+    ? await env.DB.prepare("SELECT id FROM users WHERE LOWER(TRIM(nickname)) = ? AND id != ? LIMIT 1").bind(normalized, exceptUserId).first<{ id: string }>()
+    : await env.DB.prepare("SELECT id FROM users WHERE LOWER(TRIM(nickname)) = ? LIMIT 1").bind(normalized).first<{ id: string }>();
+  return !!row;
+}
+
 export async function me(request: Request, env: Env) {
   const user = await requireUser(request, env);
   if (!user) {
@@ -29,6 +37,7 @@ export async function updateProfile(request: Request, env: Env) {
   if (!user) {
     const pending = await pendingSignupEmail(request, env);
     if (!pending) return badRequest("Not authenticated.", 401);
+    if (await isNicknameTaken(env, clean)) return badRequest("Pseudo already taken.");
     const created = await findOrCreateUser(env, pending.email, clean);
     const { sessionToken, sessionDays } = await createSession(request, env, created.id);
     await env.DB.prepare("UPDATE pending_signups SET used_at = ? WHERE id = ?").bind(nowIso(), pending.id).run();
@@ -37,6 +46,7 @@ export async function updateProfile(request: Request, env: Env) {
     headers.append("Set-Cookie", clearPendingSignupCookie());
     return new Response(JSON.stringify({ ok: true }), { headers });
   }
+  if (await isNicknameTaken(env, clean, user.id)) return badRequest("Pseudo already taken.");
   await env.DB.prepare("UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?").bind(clean, nowIso(), user.id).run();
   return json({ ok: true });
 }
