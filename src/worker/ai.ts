@@ -29,8 +29,18 @@ type Scorecard = {
   reasons: string[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v9";
+const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v10";
 type InsightLanguage = "en" | "fr";
+
+const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
+  { league: 29, season: 2023, name: "World Cup - Qualification Africa" },
+  { league: 30, season: 2026, name: "World Cup - Qualification Asia" },
+  { league: 31, season: 2026, name: "World Cup - Qualification CONCACAF" },
+  { league: 32, season: 2024, name: "World Cup - Qualification Europe" },
+  { league: 33, season: 2026, name: "World Cup - Qualification Oceania" },
+  { league: 34, season: 2026, name: "World Cup - Qualification South America" },
+  { league: 37, season: 2026, name: "World Cup - Qualification Intercontinental Play-offs" },
+] as const;
 
 const TEAM_STRENGTH_PRIOR: Record<string, number> = {
   Argentina: 95,
@@ -138,8 +148,9 @@ function compactFixture(fixture: any) {
 }
 
 function isWorldCupQualifierFixture(fixture: any) {
-  const name = String(fixture?.league?.name ?? "").toLowerCase();
-  return name.includes("world cup") && (name.includes("qualif") || name.includes("qualification"));
+  const leagueId = safeNumber(fixture?.league?.id);
+  const season = safeNumber(fixture?.league?.season);
+  return WORLD_CUP_2026_QUALIFIER_COMPETITIONS.some((competition) => competition.league === leagueId && competition.season === season);
 }
 
 function isCompletedFixture(fixture: any) {
@@ -160,9 +171,9 @@ function resultForTeam(fixture: any, teamId: number) {
   return own > against ? "W" : own < against ? "L" : "D";
 }
 
-function compactQualifierHistory(payload: any, teamId: number, beforeIso: string) {
+function compactQualifierHistory(fixturesPayloads: any[], teamId: number, beforeIso: string) {
   const beforeTime = new Date(beforeIso).getTime();
-  const fixtures = Array.isArray(payload?.response) ? payload.response : [];
+  const fixtures = fixturesPayloads.flatMap((payload) => Array.isArray(payload?.response) ? payload.response : []);
   const matches = fixtures
     .filter((fixture: any) => isWorldCupQualifierFixture(fixture))
     .filter((fixture: any) => isCompletedFixture(fixture))
@@ -180,7 +191,8 @@ function compactQualifierHistory(payload: any, teamId: number, beforeIso: string
   }, { wins: 0, draws: 0, losses: 0 });
 
   return {
-    note: "World Cup qualification fixtures only, completed before this match kickoff. Used as a stronger national-team form signal than generic recent form.",
+    note: "World Cup 2026 qualification fixtures only, matched by API-Football qualifier league IDs and completed before this match kickoff. Used as a stronger national-team form signal than generic recent form.",
+    competitions: WORLD_CUP_2026_QUALIFIER_COMPETITIONS,
     record,
     matches,
   };
@@ -448,16 +460,14 @@ async function fetchTeamStats(env: Env, teamId: number | null) {
 
 async function fetchWorldCupQualifierHistory(env: Env, teamId: number | null, beforeIso: string) {
   if (!env.FOOTBALL_API_KEY || !teamId) return null;
-  const kickoff = new Date(beforeIso);
-  const to = kickoff.toISOString().slice(0, 10);
-  const from = new Date(kickoff);
-  from.setFullYear(from.getFullYear() - 4);
-  const payload = await fetchApiFootball(env, "/fixtures", {
-    team: teamId,
-    from: from.toISOString().slice(0, 10),
-    to,
-  });
-  return compactQualifierHistory(payload, teamId, beforeIso);
+  const payloads = await Promise.all(WORLD_CUP_2026_QUALIFIER_COMPETITIONS.map((competition) => (
+    fetchApiFootball(env, "/fixtures", {
+      team: teamId,
+      league: competition.league,
+      season: competition.season,
+    }).catch(() => null)
+  )));
+  return compactQualifierHistory(payloads, teamId, beforeIso);
 }
 
 async function buildStatsSnapshot(env: Env, match: MatchRow) {
