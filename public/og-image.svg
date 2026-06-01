@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Oddzz World Cup 2026 prediction leagues">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#07111F"/>
+      <stop offset=".58" stop-color="#102449"/>
+      <stop offset="1" stop-color="#1FD36B"/>
+    </linearGradient>
+    <linearGradient id="logo" x1="90" y1="80" x2="1080" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1FD36B"/>
+      <stop offset=".5" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#FF4E64"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1040" cy="90" r="170" fill="#FF4E64" opacity=".22"/>
+  <circle cx="920" cy="540" r="230" fill="#F8D34A" opacity=".2"/>
+  <rect x="72" y="70" width="1056" height="490" rx="54" fill="#fff" opacity=".08" stroke="#fff" stroke-opacity=".18"/>
+  <g filter="url(#shadow)">
+    <text x="112" y="226" font-family="Arial, Helvetica, sans-serif" font-size="112" font-weight="900" fill="url(#logo)">Oddzz</text>
+    <text x="116" y="310" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="800" fill="#1FD36B" letter-spacing="6">WORLD CUP 2026</text>
+    <text x="116" y="392" font-family="Arial, Helvetica, sans-serif" font-size="48" font-weight="800" fill="#FFFFFF">Private prediction leagues</text>
+    <text x="116" y="462" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="600" fill="#D8E4F5">Free to play. No ads. Built for friends and colleagues.</text>
+  </g>
+  <g transform="translate(900 240)">
+    <circle cx="86" cy="86" r="86" fill="#fff" opacity=".12"/>
+    <text x="86" y="107" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="80" font-weight="900" fill="#fff">x5</text>
+  </g>
+</svg>

@@ -1,0 +1,17 @@
+{
+  "name": "Oddzz - World Cup 2026 Prediction Leagues",
+  "short_name": "Oddzz",
+  "description": "Free, ad-free World Cup 2026 prediction leagues for friends and colleagues.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07111f",
+  "theme_color": "#07111f",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
