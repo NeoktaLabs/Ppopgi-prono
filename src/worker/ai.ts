@@ -29,7 +29,7 @@ type Scorecard = {
   reasons: string[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v10";
+const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v11";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -149,8 +149,7 @@ function compactFixture(fixture: any) {
 
 function isWorldCupQualifierFixture(fixture: any) {
   const leagueId = safeNumber(fixture?.league?.id);
-  const season = safeNumber(fixture?.league?.season);
-  return WORLD_CUP_2026_QUALIFIER_COMPETITIONS.some((competition) => competition.league === leagueId && competition.season === season);
+  return WORLD_CUP_2026_QUALIFIER_COMPETITIONS.some((competition) => competition.league === leagueId);
 }
 
 function isCompletedFixture(fixture: any) {
@@ -191,7 +190,7 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, before
   }, { wins: 0, draws: 0, losses: 0 });
 
   return {
-    note: "World Cup 2026 qualification fixtures only, matched by API-Football qualifier league IDs and completed before this match kickoff. Used as a stronger national-team form signal than generic recent form.",
+    note: "World Cup 2026 qualification fixtures only, matched by API-Football qualifier league IDs and completed before this match kickoff. Some qualifier competitions use API-Football season labels earlier than 2026.",
     competitions: WORLD_CUP_2026_QUALIFIER_COMPETITIONS,
     record,
     matches,
@@ -460,14 +459,25 @@ async function fetchTeamStats(env: Env, teamId: number | null) {
 
 async function fetchWorldCupQualifierHistory(env: Env, teamId: number | null, beforeIso: string) {
   if (!env.FOOTBALL_API_KEY || !teamId) return null;
-  const payloads = await Promise.all(WORLD_CUP_2026_QUALIFIER_COMPETITIONS.map((competition) => (
+  const fetchCompetitions = (competitions: ReadonlyArray<{ league: number; season: number }>) => Promise.all(competitions.map((competition) => (
     fetchApiFootball(env, "/fixtures", {
       team: teamId,
       league: competition.league,
       season: competition.season,
     }).catch(() => null)
   )));
-  return compactQualifierHistory(payloads, teamId, beforeIso);
+
+  const primaryPayloads = await fetchCompetitions(WORLD_CUP_2026_QUALIFIER_COMPETITIONS);
+  const primaryHistory = compactQualifierHistory(primaryPayloads, teamId, beforeIso);
+  if (primaryHistory.matches.length > 0) return primaryHistory;
+
+  const targetSeason = safeNumber(env.FOOTBALL_API_SEASON) ?? 2026;
+  const fallbackCompetitions = WORLD_CUP_2026_QUALIFIER_COMPETITIONS
+    .filter((competition) => competition.season !== targetSeason)
+    .map((competition) => ({ league: competition.league, season: targetSeason }));
+  if (!fallbackCompetitions.length) return primaryHistory;
+  const fallbackPayloads = await fetchCompetitions(fallbackCompetitions);
+  return compactQualifierHistory([...primaryPayloads, ...fallbackPayloads], teamId, beforeIso);
 }
 
 async function buildStatsSnapshot(env: Env, match: MatchRow) {
