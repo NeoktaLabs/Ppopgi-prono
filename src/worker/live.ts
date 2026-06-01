@@ -1,6 +1,7 @@
 import type { Env, MatchRow } from "./types";
 import { badRequest, json, requireUser } from "./utils";
 import { calculatePredictionPoints, isGroupStage, multiplierForStage, usableFinalScore } from "./scoring";
+import { oddzzAiLeaderboardRow, rankLeaderboardRows } from "./ai-leaderboard";
 
 type LeaderboardRow = {
   user_id: string;
@@ -31,15 +32,7 @@ function withCorrectMultiplier(match: MatchRow): MatchRow {
 }
 
 function rankRows(rows: Omit<LeaderboardRow, "rank">[]): LeaderboardRow[] {
-  return rows
-    .sort((a, b) =>
-      b.points - a.points ||
-      b.exact_scores - a.exact_scores ||
-      b.correct_results - a.correct_results ||
-      b.predictions_count - a.predictions_count ||
-      (a.nickname ?? "").localeCompare(b.nickname ?? ""),
-    )
-    .map((row, index) => ({ ...row, rank: index + 1 }));
+  return rankLeaderboardRows(rows) as LeaderboardRow[];
 }
 
 async function officialLeaderboard(env: Env, leagueId: string): Promise<LeaderboardRow[]> {
@@ -213,11 +206,13 @@ export async function leagueHome(request: Request, env: Env, leagueId: string) {
   `).bind(leagueId, user.id).first();
   if (!membership) return badRequest("You are not a member of this league.", 403);
 
-  const official = await officialLeaderboard(env, leagueId);
   const live = await liveMatches(env);
+  const official = await officialLeaderboard(env, leagueId);
+  const aiRow = await oddzzAiLeaderboardRow(env, live.length > 0);
+  const officialWithAi = aiRow ? rankRows([...official.map(({ rank: _rank, ...row }) => row), aiRow]) : official;
   const leaderboard = live.length > 0
-    ? await provisionalLiveLeaderboard(env, leagueId, official, live)
-    : await withLastMatchDeltas(env, leagueId, official);
+    ? await provisionalLiveLeaderboard(env, leagueId, officialWithAi, live)
+    : await withLastMatchDeltas(env, leagueId, officialWithAi);
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);

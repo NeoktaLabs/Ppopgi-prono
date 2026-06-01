@@ -10,7 +10,8 @@ type InsightPayload = {
   disclaimer: string;
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-scouting-pack-v3";
+const INSIGHT_PROMPT_VERSION = "2026-06-01-scouting-pack-i18n-v4";
+type InsightLanguage = "en" | "fr";
 
 class AiProviderError extends Error {
   constructor(message: string, public readonly status = 503) {
@@ -214,8 +215,11 @@ function coerceInsight(value: any, match: MatchRow): InsightPayload {
   };
 }
 
-async function generateInsight(env: Env, match: MatchRow, stats: unknown): Promise<InsightPayload> {
+async function generateInsight(env: Env, match: MatchRow, stats: unknown, language: InsightLanguage): Promise<InsightPayload> {
   if (!env.OPENAI_API_KEY) return fallbackInsight(match, (stats as any)?.source ?? "match-context");
+  const languageInstruction = language === "fr"
+    ? "Write every user-facing value in French. Keep team names unchanged. Use French football wording such as prono, score exact, nul, victoire, forme récente."
+    : "Write every user-facing value in English. Keep team names unchanged.";
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -237,12 +241,13 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown): Promi
             "If team stats are null or sparse, say clearly that there is not enough statistical data yet and keep confidence low.",
             "The suggested_pick must be an exact scoreline in the format 'Team A 1-1 Team B', not just a winner.",
             "Keep the answer concise and useful for a prediction game.",
+            languageInstruction,
             "Return strict JSON with keys: headline, summary, angles, suggested_pick, confidence, disclaimer.",
           ].join(" "),
         },
         {
           role: "user",
-          content: JSON.stringify({ instructions: { no_invented_facts: true, exact_score_required: true }, match: { home: match.home_team, away: match.away_team, stage: match.stage, kickoff_at: match.kickoff_at }, stats }),
+          content: JSON.stringify({ instructions: { language, no_invented_facts: true, exact_score_required: true }, match: { home: match.home_team, away: match.away_team, stage: match.stage, kickoff_at: match.kickoff_at }, stats }),
         },
       ],
     }),
@@ -264,9 +269,10 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
   if (!user) return badRequest("Not authenticated.", 401);
   const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(matchId).first<MatchRow>();
   if (!match) return badRequest("Match not found.", 404);
+  const language = new URL(request.url).searchParams.get("lang") === "fr" ? "fr" : "en";
 
   const stats = await buildStatsSnapshot(env, match);
-  const statsJson = JSON.stringify({ prompt_version: INSIGHT_PROMPT_VERSION, stats });
+  const statsJson = JSON.stringify({ prompt_version: INSIGHT_PROMPT_VERSION, language, stats });
   const statsHash = await sha256(statsJson);
   const cached = await env.DB.prepare(`
     SELECT insight_json, updated_at FROM ai_fixture_insights
@@ -280,7 +286,7 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
 
   let insight: InsightPayload;
   try {
-    insight = await generateInsight(env, match, stats);
+    insight = await generateInsight(env, match, stats, language);
   } catch (error) {
     if (error instanceof AiProviderError) return badRequest(error.message, error.status);
     throw error;

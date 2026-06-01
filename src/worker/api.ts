@@ -2,6 +2,7 @@ import type { Env, MatchRow } from "./types";
 import { badRequest, json, nowIso, randomCode, readJson, requireUser } from "./utils";
 import { calculatePredictionPoints, isGroupStage, multiplierForStage, usableFinalScore } from "./scoring";
 import { clearPendingSignupCookie, createSession, findOrCreateUser, pendingSignupEmail } from "./auth";
+import { ODDZZ_AI_USER_ID, oddzzAiLeaderboardRow, oddzzAiVisiblePredictions, rankLeaderboardRows } from "./ai-leaderboard";
 
 function isGlobalAdmin(env: Env, email: string) {
   return (env.GLOBAL_ADMIN_EMAILS ?? "")
@@ -102,7 +103,17 @@ export async function leaderboard(request: Request, env: Env, leagueId: string) 
     GROUP BY users.id
     ORDER BY points DESC, exact_scores DESC, correct_results DESC, predictions_count DESC, users.nickname ASC
   `).bind(nowIso(), leagueId).all();
-  return json({ leaderboard: rows.results ?? [] });
+  const aiRow = await oddzzAiLeaderboardRow(env);
+  const leaderboardRows = [...(rows.results ?? []).map((row: any) => ({
+    ...row,
+    user_id: row.id,
+    points: Number(row.points ?? 0),
+    exact_scores: Number(row.exact_scores ?? 0),
+    correct_results: Number(row.correct_results ?? 0),
+    predictions_count: Number(row.predictions_count ?? 0),
+    bonuses_remaining: Number(row.bonuses_remaining ?? 0),
+  })), ...(aiRow ? [aiRow] : [])];
+  return json({ leaderboard: rankLeaderboardRows(leaderboardRows).map((row) => ({ ...row, official_rank: row.rank, rank_delta: 0, movement_type: "last_match" })) });
 }
 
 function withEffectiveScore(match: MatchRow) {
@@ -215,11 +226,22 @@ export async function globalLeaderboard(request: Request, env: Env) {
     GROUP BY users.id
     ORDER BY points DESC, exact_scores DESC, correct_results DESC, predictions_count DESC, users.nickname ASC
   `).bind(nowIso()).all();
-  return json({ leaderboard: (rows.results ?? []).map((row, index) => ({ ...row, rank: index + 1, official_rank: index + 1, rank_delta: 0, movement_type: "last_match" })) });
+  const aiRow = await oddzzAiLeaderboardRow(env);
+  const leaderboardRows = [...(rows.results ?? []).map((row) => ({
+    user_id: String((row as any).user_id),
+    nickname: (row as any).nickname ?? null,
+    points: Number((row as any).points ?? 0),
+    exact_scores: Number((row as any).exact_scores ?? 0),
+    correct_results: Number((row as any).correct_results ?? 0),
+    predictions_count: Number((row as any).predictions_count ?? 0),
+    bonuses_remaining: Number((row as any).bonuses_remaining ?? 0),
+  })), ...(aiRow ? [aiRow] : [])];
+  return json({ leaderboard: rankLeaderboardRows(leaderboardRows).map((row) => ({ ...row, official_rank: row.rank, rank_delta: 0, movement_type: "last_match" })) });
 }
 
 export async function globalUserPredictions(request: Request, env: Env, userId: string) {
   if (!(await requireUser(request, env))) return badRequest("Not authenticated.", 401);
+  if (userId === ODDZZ_AI_USER_ID) return json({ predictions: await oddzzAiVisiblePredictions(env) });
   const rows = await env.DB.prepare(`
     WITH global_predictions AS (
       SELECT user_id, match_id, MAX(home_score) as home_score, MAX(away_score) as away_score, MAX(points) as points, MAX(bonus_used) as bonus_used
