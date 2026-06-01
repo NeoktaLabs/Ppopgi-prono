@@ -14,7 +14,22 @@ type InsightPayload = {
   disclaimer: string;
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-odds-prior-v7";
+type ScoreSignal = "home" | "draw" | "away" | "balanced" | "sparse" | "unavailable";
+
+type Scorecard = {
+  market_signal: ScoreSignal;
+  api_prediction_signal: ScoreSignal;
+  qualifier_form_signal: ScoreSignal;
+  recent_form_signal: ScoreSignal;
+  strength_prior_signal: ScoreSignal;
+  confidence_score: number;
+  confidence_level: "low" | "medium" | "high";
+  suggested_pick: string;
+  bonus_recommended: boolean;
+  reasons: string[];
+};
+
+const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v9";
 type InsightLanguage = "en" | "fr";
 
 const TEAM_STRENGTH_PRIOR: Record<string, number> = {
@@ -122,6 +137,55 @@ function compactFixture(fixture: any) {
   };
 }
 
+function isWorldCupQualifierFixture(fixture: any) {
+  const name = String(fixture?.league?.name ?? "").toLowerCase();
+  return name.includes("world cup") && (name.includes("qualif") || name.includes("qualification"));
+}
+
+function isCompletedFixture(fixture: any) {
+  const short = String(fixture?.fixture?.status?.short ?? "").toUpperCase();
+  const long = String(fixture?.fixture?.status?.long ?? "").toLowerCase();
+  return ["FT", "AET", "PEN"].includes(short) || long.includes("match finished");
+}
+
+function resultForTeam(fixture: any, teamId: number) {
+  const homeId = safeNumber(fixture?.teams?.home?.id);
+  const awayId = safeNumber(fixture?.teams?.away?.id);
+  const homeGoals = safeNumber(fixture?.goals?.home ?? fixture?.score?.fulltime?.home);
+  const awayGoals = safeNumber(fixture?.goals?.away ?? fixture?.score?.fulltime?.away);
+  if (homeGoals === null || awayGoals === null) return null;
+  if (homeId !== teamId && awayId !== teamId) return null;
+  const own = homeId === teamId ? homeGoals : awayGoals;
+  const against = homeId === teamId ? awayGoals : homeGoals;
+  return own > against ? "W" : own < against ? "L" : "D";
+}
+
+function compactQualifierHistory(payload: any, teamId: number, beforeIso: string) {
+  const beforeTime = new Date(beforeIso).getTime();
+  const fixtures = Array.isArray(payload?.response) ? payload.response : [];
+  const matches = fixtures
+    .filter((fixture: any) => isWorldCupQualifierFixture(fixture))
+    .filter((fixture: any) => isCompletedFixture(fixture))
+    .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
+    .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
+    .slice(0, 12)
+    .map((fixture: any) => ({ ...compactFixture(fixture), result: resultForTeam(fixture, teamId) }))
+    .filter(Boolean);
+
+  const record = matches.reduce((acc: { wins: number; draws: number; losses: number }, fixture: any) => {
+    if (fixture.result === "W") acc.wins += 1;
+    if (fixture.result === "D") acc.draws += 1;
+    if (fixture.result === "L") acc.losses += 1;
+    return acc;
+  }, { wins: 0, draws: 0, losses: 0 });
+
+  return {
+    note: "World Cup qualification fixtures only, completed before this match kickoff. Used as a stronger national-team form signal than generic recent form.",
+    record,
+    matches,
+  };
+}
+
 function compactPrediction(payload: any) {
   const item = payload?.response?.[0];
   if (!item) return null;
@@ -208,6 +272,164 @@ function baselineScoreHint(homeTeam: string, awayTeam: string) {
   return `${homeTeam} 0-3 ${awayTeam}`;
 }
 
+function parsePercent(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const parsed = Number(value.replace("%", "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function signalValue(signal: ScoreSignal) {
+  if (signal === "home") return 1;
+  if (signal === "away") return -1;
+  return 0;
+}
+
+function confidenceLevel(score: number): "low" | "medium" | "high" {
+  if (score >= 0.72) return "high";
+  if (score >= 0.48) return "medium";
+  return "low";
+}
+
+function matchWinnerOddsSignal(odds: any, homeTeam: string, awayTeam: string) {
+  const markets = Array.isArray(odds?.markets) ? odds.markets : [];
+  const market = markets.find((item: any) => ["Match Winner", "Home/Away"].includes(item?.name));
+  const values = Array.isArray(market?.values) ? market.values : [];
+  const map = new Map<"home" | "draw" | "away", number>();
+  for (const value of values) {
+    const label = String(value?.label ?? "").toLowerCase();
+    const odd = Number(value?.odd);
+    if (!Number.isFinite(odd) || odd <= 1) continue;
+    if (label === "home" || label === homeTeam.toLowerCase()) map.set("home", odd);
+    if (label === "draw") map.set("draw", odd);
+    if (label === "away" || label === awayTeam.toLowerCase()) map.set("away", odd);
+  }
+  if (map.size < 2) return { signal: "unavailable" as ScoreSignal, reason: "No usable match-winner odds yet." };
+  const ranked = [...map.entries()].sort((a, b) => a[1] - b[1]);
+  const [best, second] = ranked;
+  if (!best || !second) return { signal: "unavailable" as ScoreSignal, reason: "No usable match-winner odds yet." };
+  const edge = second[1] - best[1];
+  return {
+    signal: edge < 0.18 ? "balanced" as ScoreSignal : best[0],
+    reason: `Market leans ${best[0]} from ${odds.bookmaker ?? "available"} odds.`,
+  };
+}
+
+function apiPredictionSignal(prediction: any, homeTeam: string, awayTeam: string) {
+  const percent = prediction?.percent ?? prediction?.predictions?.percent;
+  const home = parsePercent(percent?.home);
+  const draw = parsePercent(percent?.draw);
+  const away = parsePercent(percent?.away);
+  if (home !== null && draw !== null && away !== null) {
+    const ranked: Array<["home" | "draw" | "away", number]> = [
+      ["home", home],
+      ["draw", draw],
+      ["away", away],
+    ];
+    ranked.sort((a, b) => b[1] - a[1]);
+    const [best, second] = ranked;
+    return {
+      signal: best[1] - second[1] < 6 ? "balanced" as ScoreSignal : best[0],
+      reason: `API-Football prediction leans ${best[0]} (${best[1]}%).`,
+    };
+  }
+  const winner = String(prediction?.winner ?? "").toLowerCase();
+  if (!winner) return { signal: "unavailable" as ScoreSignal, reason: "API-Football prediction is unavailable." };
+  if (winner === homeTeam.toLowerCase()) return { signal: "home" as ScoreSignal, reason: `API-Football winner signal favors ${homeTeam}.` };
+  if (winner === awayTeam.toLowerCase()) return { signal: "away" as ScoreSignal, reason: `API-Football winner signal favors ${awayTeam}.` };
+  return { signal: "draw" as ScoreSignal, reason: "API-Football winner signal points to a draw or balanced match." };
+}
+
+function qualifierFormSignal(homeHistory: any, awayHistory: any) {
+  const homeMatches = Number(homeHistory?.matches?.length ?? 0);
+  const awayMatches = Number(awayHistory?.matches?.length ?? 0);
+  if (homeMatches < 2 || awayMatches < 2) return { signal: "sparse" as ScoreSignal, reason: "World Cup qualifier history is sparse for at least one team." };
+  const homeRecord = homeHistory.record ?? {};
+  const awayRecord = awayHistory.record ?? {};
+  const homePpg = ((homeRecord.wins ?? 0) * 3 + (homeRecord.draws ?? 0)) / homeMatches;
+  const awayPpg = ((awayRecord.wins ?? 0) * 3 + (awayRecord.draws ?? 0)) / awayMatches;
+  const diff = homePpg - awayPpg;
+  if (Math.abs(diff) < 0.35) return { signal: "balanced" as ScoreSignal, reason: `Qualifier form is close (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match).` };
+  return {
+    signal: diff > 0 ? "home" as ScoreSignal : "away" as ScoreSignal,
+    reason: `Qualifier form favors ${diff > 0 ? "home" : "away"} (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match).`,
+  };
+}
+
+function recentFormSignal(homeForm: any[], awayForm: any[], homeTeam: string, awayTeam: string) {
+  if (!homeForm?.length || !awayForm?.length) return { signal: "sparse" as ScoreSignal, reason: "Generic recent-form data is sparse." };
+  const avgGoalDiff = (fixtures: any[], teamName: string) => {
+    const diffs = fixtures.map((fixture) => {
+      const home = fixture.teams?.home === teamName;
+      const away = fixture.teams?.away === teamName;
+      const homeGoals = safeNumber(fixture.score?.home);
+      const awayGoals = safeNumber(fixture.score?.away);
+      if ((!home && !away) || homeGoals === null || awayGoals === null) return null;
+      return home ? homeGoals - awayGoals : awayGoals - homeGoals;
+    }).filter((value): value is number => value !== null);
+    return diffs.length ? diffs.reduce((sum, value) => sum + value, 0) / diffs.length : null;
+  };
+  const homeDiff = avgGoalDiff(homeForm, homeTeam);
+  const awayDiff = avgGoalDiff(awayForm, awayTeam);
+  if (homeDiff === null || awayDiff === null) return { signal: "sparse" as ScoreSignal, reason: "Recent-form score data could not be normalized reliably." };
+  const diff = homeDiff - awayDiff;
+  if (Math.abs(diff) < 0.35) return { signal: "balanced" as ScoreSignal, reason: `Recent goal-difference form is close (${homeDiff.toFixed(2)} vs ${awayDiff.toFixed(2)}).` };
+  return {
+    signal: diff > 0 ? "home" as ScoreSignal : "away" as ScoreSignal,
+    reason: `Recent goal-difference form favors ${diff > 0 ? homeTeam : awayTeam} (${homeDiff.toFixed(2)} vs ${awayDiff.toFixed(2)}).`,
+  };
+}
+
+function strengthPriorSignal(homeTeam: string, awayTeam: string) {
+  const gap = teamStrength(homeTeam) - teamStrength(awayTeam);
+  if (Math.abs(gap) < 4) return { signal: "balanced" as ScoreSignal, reason: "Internal strength prior sees the teams as close." };
+  return {
+    signal: gap > 0 ? "home" as ScoreSignal : "away" as ScoreSignal,
+    reason: `Internal strength prior favors ${gap > 0 ? homeTeam : awayTeam} by ${Math.abs(gap)} points.`,
+  };
+}
+
+function suggestedScoreFromEdge(homeTeam: string, awayTeam: string, edge: number) {
+  if (edge >= 0.55) return `${homeTeam} 2-0 ${awayTeam}`;
+  if (edge >= 0.2) return `${homeTeam} 2-1 ${awayTeam}`;
+  if (edge <= -0.55) return `${homeTeam} 0-2 ${awayTeam}`;
+  if (edge <= -0.2) return `${homeTeam} 1-2 ${awayTeam}`;
+  return `${homeTeam} 1-1 ${awayTeam}`;
+}
+
+function buildScorecard(match: MatchRow, scouting: any): Scorecard {
+  const market = matchWinnerOddsSignal(scouting.market_odds, match.home_team, match.away_team);
+  const api = apiPredictionSignal(scouting.provider_prediction, match.home_team, match.away_team);
+  const qualifiers = qualifierFormSignal(scouting.world_cup_qualifiers?.home, scouting.world_cup_qualifiers?.away);
+  const recent = recentFormSignal(scouting.teams?.home?.recent_form ?? [], scouting.teams?.away?.recent_form ?? [], match.home_team, match.away_team);
+  const strength = strengthPriorSignal(match.home_team, match.away_team);
+  const weightedSignals = [
+    { ...market, weight: 0.35 },
+    { ...api, weight: 0.25 },
+    { ...qualifiers, weight: 0.2 },
+    { ...strength, weight: 0.15 },
+    { ...recent, weight: 0.05 },
+  ];
+  const usable = weightedSignals.filter((item) => !["unavailable", "sparse"].includes(item.signal));
+  const totalWeight = usable.reduce((sum, item) => sum + item.weight, 0);
+  const edge = totalWeight ? usable.reduce((sum, item) => sum + signalValue(item.signal) * item.weight, 0) / totalWeight : 0;
+  const agreement = usable.length ? usable.filter((item) => Math.sign(signalValue(item.signal)) === Math.sign(edge) || signalValue(item.signal) === 0).length / usable.length : 0;
+  const confidence = Math.max(0.12, Math.min(0.95, totalWeight * (0.55 + agreement * 0.45) * Math.min(1, Math.abs(edge) + 0.35)));
+  const level = confidenceLevel(confidence);
+  return {
+    market_signal: market.signal,
+    api_prediction_signal: api.signal,
+    qualifier_form_signal: qualifiers.signal,
+    recent_form_signal: recent.signal,
+    strength_prior_signal: strength.signal,
+    confidence_score: Number(confidence.toFixed(2)),
+    confidence_level: level,
+    suggested_pick: suggestedScoreFromEdge(match.home_team, match.away_team, edge),
+    bonus_recommended: level === "high" && Math.abs(edge) >= 0.5 && String(match.stage ?? "").toLowerCase().includes("group"),
+    reasons: [market.reason, api.reason, qualifiers.reason, strength.reason, recent.reason].filter(Boolean).slice(0, 5),
+  };
+}
+
 async function fetchFixtureTeams(env: Env, externalId: string) {
   const payload = await fetchApiFootball<{ response?: any[] }>(env, "/fixtures", { id: externalId });
   const fixture = payload?.response?.[0];
@@ -224,15 +446,31 @@ async function fetchTeamStats(env: Env, teamId: number | null) {
   return compactTeamStats(await fetchApiFootball(env, "/teams/statistics", { league, season, team: teamId }));
 }
 
+async function fetchWorldCupQualifierHistory(env: Env, teamId: number | null, beforeIso: string) {
+  if (!env.FOOTBALL_API_KEY || !teamId) return null;
+  const kickoff = new Date(beforeIso);
+  const to = kickoff.toISOString().slice(0, 10);
+  const from = new Date(kickoff);
+  from.setFullYear(from.getFullYear() - 4);
+  const payload = await fetchApiFootball(env, "/fixtures", {
+    team: teamId,
+    from: from.toISOString().slice(0, 10),
+    to,
+  });
+  return compactQualifierHistory(payload, teamId, beforeIso);
+}
+
 async function buildStatsSnapshot(env: Env, match: MatchRow) {
   const teams = await fetchFixtureTeams(env, match.external_id).catch(() => null);
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
-  const [homeStats, awayStats, homeForm, awayForm, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
+  const [homeStats, awayStats, homeForm, awayForm, homeQualifierHistory, awayQualifierHistory, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
     fetchTeamStats(env, teams?.home ?? null).catch(() => null),
     fetchTeamStats(env, teams?.away ?? null).catch(() => null),
     teams?.home ? fetchApiFootball(env, "/fixtures", { team: teams.home, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
     teams?.away ? fetchApiFootball(env, "/fixtures", { team: teams.away, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
+    fetchWorldCupQualifierHistory(env, teams?.home ?? null, match.kickoff_at).catch(() => null),
+    fetchWorldCupQualifierHistory(env, teams?.away ?? null, match.kickoff_at).catch(() => null),
     teams?.home ? fetchApiFootball(env, "/standings", { league, season, team: teams.home }).then(compactStanding).catch(() => null) : null,
     teams?.away ? fetchApiFootball(env, "/standings", { league, season, team: teams.away }).then(compactStanding).catch(() => null) : null,
     teams?.home && teams?.away ? fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${teams.home}-${teams.away}`, last: 10 }).then((payload: any) => payload?.response?.slice(0, 10).map(compactFixture) ?? null).catch(() => null) : null,
@@ -242,6 +480,7 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
   ]);
   const datasets = {
     odds: !!odds,
+    world_cup_qualifiers: !!((homeQualifierHistory?.matches.length ?? 0) || (awayQualifierHistory?.matches.length ?? 0)),
     team_statistics: !!(homeStats || awayStats),
     recent_form: !!((homeForm?.length ?? 0) || (awayForm?.length ?? 0)),
     standings: !!(homeStanding || awayStanding),
@@ -249,7 +488,7 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     api_prediction: !!providerPrediction,
     injuries: !!(injuries?.length ?? 0),
   };
-  return {
+  const scouting = {
     match: {
       id: match.id,
       external_id: match.external_id,
@@ -265,6 +504,10 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     source: Object.values(datasets).some(Boolean) ? "football-api-scouting-pack" : "match-context",
     datasets,
     market_odds: odds,
+    world_cup_qualifiers: {
+      home: homeQualifierHistory,
+      away: awayQualifierHistory,
+    },
     provider_prediction: providerPrediction,
     head_to_head: h2h ?? [],
     injuries: injuries ?? [],
@@ -276,50 +519,51 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
       suggested_score_hint: baselineScoreHint(match.home_team, match.away_team),
     },
     teams: {
-      home: { id: teams?.home ?? null, name: match.home_team, stats: homeStats, recent_form: homeForm ?? [], standing: homeStanding },
-      away: { id: teams?.away ?? null, name: match.away_team, stats: awayStats, recent_form: awayForm ?? [], standing: awayStanding },
+      home: { id: teams?.home ?? null, name: match.home_team, stats: homeStats, recent_form: homeForm ?? [], world_cup_qualifiers: homeQualifierHistory, standing: homeStanding },
+      away: { id: teams?.away ?? null, name: match.away_team, stats: awayStats, recent_form: awayForm ?? [], world_cup_qualifiers: awayQualifierHistory, standing: awayStanding },
     },
   };
+  return { ...scouting, oddzz_scorecard: buildScorecard(match, scouting) };
 }
 
-function fallbackInsight(match: MatchRow, statsSource: string): InsightPayload {
+function fallbackInsight(match: MatchRow, statsSource: string, scorecard?: Scorecard): InsightPayload {
   return {
     headline: `${match.home_team} vs ${match.away_team}: quick read`,
-    summary: `Oddzz AI can compare team stats once API keys are configured. For now, this local preview uses fixture context only, so treat it as a UI demo rather than a real forecast.`,
+    summary: scorecard ? `OddzzAI scorecard leans toward ${scorecard.suggested_pick} with ${scorecard.confidence_level} confidence.` : `Oddzz AI can compare team stats once API keys are configured. For now, this local preview uses fixture context only, so treat it as a UI demo rather than a real forecast.`,
     angles: [
-      `${match.stage ?? "World Cup"} match scheduled for ${new Date(match.kickoff_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}.`,
+      ...(scorecard?.reasons ?? [`${match.stage ?? "World Cup"} match scheduled for ${new Date(match.kickoff_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}.`]),
       `Stats source: ${statsSource}.`,
-      `A cautious pick is usually better than chasing a huge scoreline in group-stage style fixtures.`,
-    ],
-    suggested_pick: `${match.home_team} 1-1 ${match.away_team}`,
+    ].slice(0, 4),
+    suggested_pick: scorecard?.suggested_pick ?? `${match.home_team} 1-1 ${match.away_team}`,
     bonus_recommendation: {
-      use_bonus: false,
-      reason: "Do not use a bonus when confidence is low or the data is sparse.",
+      use_bonus: scorecard?.bonus_recommended ?? false,
+      reason: scorecard?.bonus_recommended ? "The scorecard sees a high-confidence group-stage edge." : "Do not use a bonus unless the scorecard confidence is high.",
     },
-    confidence: "low",
+    confidence: scorecard?.confidence_level ?? "low",
     disclaimer: "AI insight for fun only. Not betting advice.",
   };
 }
 
-function coerceInsight(value: any, match: MatchRow): InsightPayload {
+function coerceInsight(value: any, match: MatchRow, scorecard?: Scorecard): InsightPayload {
   const rawPick = String(value?.suggested_pick || "");
-  const suggestedPick = /\d+\s*[-:]\s*\d+/.test(rawPick) ? rawPick : `${match.home_team} 1-1 ${match.away_team}`;
+  const suggestedPick = /\d+\s*[-:]\s*\d+/.test(rawPick) ? rawPick : (scorecard?.suggested_pick ?? `${match.home_team} 1-1 ${match.away_team}`);
   return {
     headline: String(value?.headline || `${match.home_team} vs ${match.away_team}`),
     summary: String(value?.summary || "No summary available."),
     angles: Array.isArray(value?.angles) ? value.angles.slice(0, 4).map(String) : [],
     suggested_pick: suggestedPick,
     bonus_recommendation: {
-      use_bonus: value?.bonus_recommendation?.use_bonus === true,
-      reason: String(value?.bonus_recommendation?.reason || "No bonus recommendation available."),
+      use_bonus: value?.bonus_recommendation?.use_bonus === true && (scorecard?.bonus_recommended ?? true),
+      reason: String(value?.bonus_recommendation?.reason || scorecard?.reasons?.[0] || "No bonus recommendation available."),
     },
-    confidence: ["low", "medium", "high"].includes(value?.confidence) ? value.confidence : "low",
+    confidence: ["low", "medium", "high"].includes(value?.confidence) ? value.confidence : (scorecard?.confidence_level ?? "low"),
     disclaimer: String(value?.disclaimer || "AI insight for fun only. Not betting advice."),
   };
 }
 
 async function generateInsight(env: Env, match: MatchRow, stats: unknown, language: InsightLanguage): Promise<InsightPayload> {
-  if (!env.OPENAI_API_KEY) return fallbackInsight(match, (stats as any)?.source ?? "match-context");
+  const scorecard = (stats as any)?.oddzz_scorecard as Scorecard | undefined;
+  if (!env.OPENAI_API_KEY) return fallbackInsight(match, (stats as any)?.source ?? "match-context", scorecard);
   const languageInstruction = language === "fr"
     ? "Write every user-facing value in French. Keep team names unchanged. Use French football wording such as prono, score exact, nul, victoire, forme récente."
     : "Write every user-facing value in English. Keep team names unchanged.";
@@ -339,13 +583,16 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
           content: [
             "You are Oddzz AI, a friendly World Cup prediction assistant for entertainment only.",
             "Use ONLY the match and stats JSON provided by the user. Do not invent team history, host status, recent form, injuries, rankings, or previous results.",
-            "Consider the available datasets in this order: market_odds, provider_prediction, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
+            "The stats JSON contains oddzz_scorecard. Treat this scorecard as the primary recommendation produced by Oddzz's deterministic engine. Explain it clearly; do not override its suggested_pick unless the provided raw datasets strongly contradict it.",
+            "Consider the available datasets in this order: market_odds, provider_prediction, world_cup_qualifiers, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
+            "World Cup qualifier history is an important national-team signal. Treat it as more relevant than generic friendlies or unrelated club-style form, but still respect data recency and opponent quality.",
             "If market_odds exists, treat bookmaker odds as a useful market signal, not certainty. Use it especially to break ties when football stats are sparse.",
             "When provider_prediction and live statistics are missing or sparse, use baseline_strength_prior as a heuristic fallback so stronger teams are not treated as automatic 1-1 draws.",
             "If the strength gap is 6+ points, avoid defaulting to a draw unless other provided data clearly supports it.",
             "If API-Football's provider_prediction exists, treat it as one useful signal, not as guaranteed truth.",
             "If team stats are null or sparse, say clearly that there is not enough statistical data yet and keep confidence low.",
             "The suggested_pick must be an exact scoreline in the format 'Team A 1-1 Team B', not just a winner.",
+            "Prefer oddzz_scorecard.suggested_pick for suggested_pick. Bonus recommendation should normally follow oddzz_scorecard.bonus_recommended.",
             "Also recommend whether OddzzAI should use one of its two x5 bonuses. It can only use bonuses on group-stage matches, and only when confidence is high enough to justify the risk.",
             "Keep the answer concise and useful for a prediction game.",
             languageInstruction,
@@ -368,7 +615,7 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
     throw new AiProviderError(message, response.status === 429 ? 503 : response.status);
   }
   const payload = await response.json() as any;
-  return coerceInsight(JSON.parse(payload.choices?.[0]?.message?.content ?? "{}"), match);
+  return coerceInsight(JSON.parse(payload.choices?.[0]?.message?.content ?? "{}"), match, scorecard);
 }
 
 export async function fixtureAiInsight(request: Request, env: Env, matchId: string) {
