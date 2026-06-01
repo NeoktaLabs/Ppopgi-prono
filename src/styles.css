@@ -412,6 +412,10 @@ body{overflow-x:hidden}
 
 /* Global leaderboard and form polish */
 .form-error{margin:.55rem 0 0;color:#b4232c;font-weight:900;font-size:.88rem}
+.profile-form{display:grid;gap:.7rem}
+.profile-status{margin:0;padding:.78rem .9rem;border-radius:18px;font-weight:950;text-align:center;border:1px solid transparent;box-shadow:0 12px 24px rgba(6,23,53,.08)}
+.profile-status.is-success{background:#dcfce7;color:#067647;border-color:rgba(31,211,107,.28)}
+.profile-status.is-error{background:#ffe4e8;color:#b4232c;border-color:rgba(255,77,94,.28)}
 .icon-button{align-items:center!important;justify-items:center!important;place-content:center!important}
 .profile-glyph{position:relative;left:0;top:0;transform:translateY(-.02rem)}
 .global-leaderboard-panel{margin-bottom:1rem}
