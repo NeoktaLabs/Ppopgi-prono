@@ -10,8 +10,33 @@ type InsightPayload = {
   disclaimer: string;
 };
 
+const INSIGHT_PROMPT_VERSION = "2026-06-01-scouting-pack-v3";
+
+class AiProviderError extends Error {
+  constructor(message: string, public readonly status = 503) {
+    super(message);
+  }
+}
+
 function safeNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function apiFootballBaseUrl(env: Env) {
+  return env.FOOTBALL_API_BASE_URL || "https://v3.football.api-sports.io";
+}
+
+async function fetchApiFootball<T = any>(env: Env, path: string, params: Record<string, string | number | null | undefined>) {
+  if (!env.FOOTBALL_API_KEY) return null;
+  const url = new URL(`${apiFootballBaseUrl(env)}${path}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== "") url.searchParams.set(key, String(value));
+  }
+  const response = await fetch(url.toString(), {
+    headers: { "x-apisports-key": env.FOOTBALL_API_KEY },
+  });
+  if (!response.ok) return null;
+  return response.json() as Promise<T>;
 }
 
 function compactTeamStats(payload: any) {
@@ -27,15 +52,79 @@ function compactTeamStats(payload: any) {
   };
 }
 
+function compactFixture(fixture: any) {
+  if (!fixture) return null;
+  return {
+    date: fixture.fixture?.date ?? null,
+    status: fixture.fixture?.status?.short ?? fixture.fixture?.status?.long ?? null,
+    league: fixture.league ? {
+      name: fixture.league.name ?? null,
+      country: fixture.league.country ?? null,
+      season: fixture.league.season ?? null,
+      round: fixture.league.round ?? null,
+    } : null,
+    teams: {
+      home: fixture.teams?.home?.name ?? null,
+      away: fixture.teams?.away?.name ?? null,
+    },
+    score: {
+      home: fixture.goals?.home ?? fixture.score?.fulltime?.home ?? null,
+      away: fixture.goals?.away ?? fixture.score?.fulltime?.away ?? null,
+    },
+  };
+}
+
+function compactPrediction(payload: any) {
+  const item = payload?.response?.[0];
+  if (!item) return null;
+  return {
+    winner: item.predictions?.winner?.name ?? null,
+    advice: item.predictions?.advice ?? null,
+    percent: item.predictions?.percent ?? null,
+    goals: item.predictions?.goals ?? null,
+    comparison: item.comparison ?? null,
+    teams: item.teams ? {
+      home: {
+        name: item.teams.home?.name ?? null,
+        last_5: item.teams.home?.last_5 ?? null,
+        league: item.teams.home?.league ?? null,
+      },
+      away: {
+        name: item.teams.away?.name ?? null,
+        last_5: item.teams.away?.last_5 ?? null,
+        league: item.teams.away?.league ?? null,
+      },
+    } : null,
+    h2h: Array.isArray(item.h2h) ? item.h2h.slice(0, 5).map(compactFixture) : [],
+  };
+}
+
+function compactStanding(payload: any) {
+  const rows = payload?.response?.[0]?.league?.standings?.flat?.() ?? [];
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    rank: row.rank ?? null,
+    points: row.points ?? null,
+    goalsDiff: row.goalsDiff ?? null,
+    form: row.form ?? null,
+    all: row.all ?? null,
+  };
+}
+
+function compactInjuries(payload: any) {
+  const injuries = Array.isArray(payload?.response) ? payload.response : [];
+  return injuries.slice(0, 8).map((item: any) => ({
+    player: item.player?.name ?? null,
+    team: item.team?.name ?? null,
+    reason: item.player?.reason ?? null,
+    type: item.player?.type ?? null,
+  })).filter((item: any) => item.player || item.team || item.reason);
+}
+
 async function fetchFixtureTeams(env: Env, externalId: string) {
-  if (!env.FOOTBALL_API_KEY) return null;
-  const baseUrl = env.FOOTBALL_API_BASE_URL || "https://v3.football.api-sports.io";
-  const response = await fetch(`${baseUrl}/fixtures?id=${encodeURIComponent(externalId)}`, {
-    headers: { "x-apisports-key": env.FOOTBALL_API_KEY },
-  });
-  if (!response.ok) return null;
-  const payload = await response.json() as { response?: any[] };
-  const fixture = payload.response?.[0];
+  const payload = await fetchApiFootball<{ response?: any[] }>(env, "/fixtures", { id: externalId });
+  const fixture = payload?.response?.[0];
   return fixture?.teams ? {
     home: safeNumber(fixture.teams.home?.id),
     away: safeNumber(fixture.teams.away?.id),
@@ -44,22 +133,34 @@ async function fetchFixtureTeams(env: Env, externalId: string) {
 
 async function fetchTeamStats(env: Env, teamId: number | null) {
   if (!env.FOOTBALL_API_KEY || !teamId) return null;
-  const baseUrl = env.FOOTBALL_API_BASE_URL || "https://v3.football.api-sports.io";
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
-  const response = await fetch(`${baseUrl}/teams/statistics?league=${league}&season=${season}&team=${teamId}`, {
-    headers: { "x-apisports-key": env.FOOTBALL_API_KEY },
-  });
-  if (!response.ok) return null;
-  return compactTeamStats(await response.json());
+  return compactTeamStats(await fetchApiFootball(env, "/teams/statistics", { league, season, team: teamId }));
 }
 
 async function buildStatsSnapshot(env: Env, match: MatchRow) {
   const teams = await fetchFixtureTeams(env, match.external_id).catch(() => null);
-  const [homeStats, awayStats] = await Promise.all([
+  const league = env.FOOTBALL_API_LEAGUE_ID || "1";
+  const season = env.FOOTBALL_API_SEASON || "2026";
+  const [homeStats, awayStats, homeForm, awayForm, homeStanding, awayStanding, h2h, providerPrediction, injuries] = await Promise.all([
     fetchTeamStats(env, teams?.home ?? null).catch(() => null),
     fetchTeamStats(env, teams?.away ?? null).catch(() => null),
+    teams?.home ? fetchApiFootball(env, "/fixtures", { team: teams.home, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
+    teams?.away ? fetchApiFootball(env, "/fixtures", { team: teams.away, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
+    teams?.home ? fetchApiFootball(env, "/standings", { league, season, team: teams.home }).then(compactStanding).catch(() => null) : null,
+    teams?.away ? fetchApiFootball(env, "/standings", { league, season, team: teams.away }).then(compactStanding).catch(() => null) : null,
+    teams?.home && teams?.away ? fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${teams.home}-${teams.away}`, last: 10 }).then((payload: any) => payload?.response?.slice(0, 10).map(compactFixture) ?? null).catch(() => null) : null,
+    fetchApiFootball(env, "/predictions", { fixture: match.external_id }).then(compactPrediction).catch(() => null),
+    fetchApiFootball(env, "/injuries", { fixture: match.external_id }).then(compactInjuries).catch(() => null),
   ]);
+  const datasets = {
+    team_statistics: !!(homeStats || awayStats),
+    recent_form: !!((homeForm?.length ?? 0) || (awayForm?.length ?? 0)),
+    standings: !!(homeStanding || awayStanding),
+    head_to_head: !!(h2h?.length ?? 0),
+    api_prediction: !!providerPrediction,
+    injuries: !!(injuries?.length ?? 0),
+  };
   return {
     match: {
       id: match.id,
@@ -73,10 +174,14 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
       final_score: match.final_home != null || match.final_away != null ? `${match.final_home ?? 0}-${match.final_away ?? 0}` : null,
       points_multiplier: match.points_multiplier,
     },
-    source: homeStats || awayStats ? "football-api" : "match-context",
+    source: Object.values(datasets).some(Boolean) ? "football-api-scouting-pack" : "match-context",
+    datasets,
+    provider_prediction: providerPrediction,
+    head_to_head: h2h ?? [],
+    injuries: injuries ?? [],
     teams: {
-      home: { id: teams?.home ?? null, name: match.home_team, stats: homeStats },
-      away: { id: teams?.away ?? null, name: match.away_team, stats: awayStats },
+      home: { id: teams?.home ?? null, name: match.home_team, stats: homeStats, recent_form: homeForm ?? [], standing: homeStanding },
+      away: { id: teams?.away ?? null, name: match.away_team, stats: awayStats, recent_form: awayForm ?? [], standing: awayStanding },
     },
   };
 }
@@ -97,11 +202,13 @@ function fallbackInsight(match: MatchRow, statsSource: string): InsightPayload {
 }
 
 function coerceInsight(value: any, match: MatchRow): InsightPayload {
+  const rawPick = String(value?.suggested_pick || "");
+  const suggestedPick = /\d+\s*[-:]\s*\d+/.test(rawPick) ? rawPick : `${match.home_team} 1-1 ${match.away_team}`;
   return {
     headline: String(value?.headline || `${match.home_team} vs ${match.away_team}`),
     summary: String(value?.summary || "No summary available."),
     angles: Array.isArray(value?.angles) ? value.angles.slice(0, 4).map(String) : [],
-    suggested_pick: String(value?.suggested_pick || "No clear pick"),
+    suggested_pick: suggestedPick,
     confidence: ["low", "medium", "high"].includes(value?.confidence) ? value.confidence : "low",
     disclaimer: String(value?.disclaimer || "AI insight for fun only. Not betting advice."),
   };
@@ -122,16 +229,32 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown): Promi
       messages: [
         {
           role: "system",
-          content: "You are Oddzz AI, a friendly World Cup prediction assistant. Give concise football insights for entertainment only. Do not present betting advice or certainty. Return strict JSON with keys: headline, summary, angles, suggested_pick, confidence, disclaimer.",
+          content: [
+            "You are Oddzz AI, a friendly World Cup prediction assistant for entertainment only.",
+            "Use ONLY the match and stats JSON provided by the user. Do not invent team history, host status, recent form, injuries, rankings, or previous results.",
+            "Consider the available datasets in this order: provider_prediction, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
+            "If API-Football's provider_prediction exists, treat it as one useful signal, not as guaranteed truth.",
+            "If team stats are null or sparse, say clearly that there is not enough statistical data yet and keep confidence low.",
+            "The suggested_pick must be an exact scoreline in the format 'Team A 1-1 Team B', not just a winner.",
+            "Keep the answer concise and useful for a prediction game.",
+            "Return strict JSON with keys: headline, summary, angles, suggested_pick, confidence, disclaimer.",
+          ].join(" "),
         },
         {
           role: "user",
-          content: JSON.stringify({ match: { home: match.home_team, away: match.away_team, stage: match.stage, kickoff_at: match.kickoff_at }, stats }),
+          content: JSON.stringify({ instructions: { no_invented_facts: true, exact_score_required: true }, match: { home: match.home_team, away: match.away_team, stage: match.stage, kickoff_at: match.kickoff_at }, stats }),
         },
       ],
     }),
   });
-  if (!response.ok) throw new Error(`OpenAI request failed (${response.status}): ${await response.text()}`);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: { code?: string; message?: string; type?: string } } | null;
+    const code = body?.error?.code || body?.error?.type || "provider_error";
+    const message = code === "insufficient_quota"
+      ? "Oddzz AI is temporarily unavailable because the OpenAI account has no remaining quota. Please check billing or credits."
+      : "Oddzz AI is temporarily unavailable. Please try again later.";
+    throw new AiProviderError(message, response.status === 429 ? 503 : response.status);
+  }
   const payload = await response.json() as any;
   return coerceInsight(JSON.parse(payload.choices?.[0]?.message?.content ?? "{}"), match);
 }
@@ -143,7 +266,7 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
   if (!match) return badRequest("Match not found.", 404);
 
   const stats = await buildStatsSnapshot(env, match);
-  const statsJson = JSON.stringify(stats);
+  const statsJson = JSON.stringify({ prompt_version: INSIGHT_PROMPT_VERSION, stats });
   const statsHash = await sha256(statsJson);
   const cached = await env.DB.prepare(`
     SELECT insight_json, updated_at FROM ai_fixture_insights
@@ -155,7 +278,13 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
     return json({ insight: JSON.parse(cached.insight_json), cached: true, updated_at: cached.updated_at, stats_source: stats.source });
   }
 
-  const insight = await generateInsight(env, match, stats);
+  let insight: InsightPayload;
+  try {
+    insight = await generateInsight(env, match, stats);
+  } catch (error) {
+    if (error instanceof AiProviderError) return badRequest(error.message, error.status);
+    throw error;
+  }
   const now = nowIso();
   await env.DB.prepare(`
     INSERT INTO ai_fixture_insights (id, match_id, stats_hash, stats_json, insight_json, created_at, updated_at)
