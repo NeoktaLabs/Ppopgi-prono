@@ -33,6 +33,7 @@ import {
 } from "./global-admin";
 import { leagueHome } from "./live";
 import { scheduledSync, syncWorldCupMatches } from "./sync";
+import { fixtureAiInsight } from "./ai";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -84,6 +85,9 @@ async function handleApi(request: Request, env: Env) {
 
   const matchPredictionParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/matches\/([^/]+)\/predictions$/);
   if (request.method === "GET" && matchPredictionParams) return matchPredictions(request, env, matchPredictionParams[0], matchPredictionParams[1]);
+
+  const aiInsightParams = routeParams(pathname, /^\/api\/matches\/([^/]+)\/ai-insight$/);
+  if (request.method === "GET" && aiInsightParams) return fixtureAiInsight(request, env, aiInsightParams[0]);
 
   const removeMemberParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/members\/([^/]+)$/);
   if (request.method === "DELETE" && removeMemberParams) return removeLeagueMember(request, env, removeMemberParams[0], removeMemberParams[1]);

@@ -19,6 +19,8 @@ export type Env = {
   FOOTBALL_API_BASE_URL?: string;
   FOOTBALL_API_LEAGUE_ID?: string;
   FOOTBALL_API_SEASON?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
 };
 
 export type User = {

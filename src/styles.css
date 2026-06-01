@@ -416,6 +416,21 @@ body{overflow-x:hidden}
 .profile-status{margin:0;padding:.78rem .9rem;border-radius:18px;font-weight:950;text-align:center;border:1px solid transparent;box-shadow:0 12px 24px rgba(6,23,53,.08)}
 .profile-status.is-success{background:#dcfce7;color:#067647;border-color:rgba(31,211,107,.28)}
 .profile-status.is-error{background:#ffe4e8;color:#b4232c;border-color:rgba(255,77,94,.28)}
+.ai-insight-button{display:inline-flex;align-items:center;justify-content:center;margin:0 auto .65rem;padding:.42rem .72rem;min-height:2rem;border-radius:999px;background:linear-gradient(90deg,var(--pitch),var(--coral),var(--gold))!important;color:#061735!important;border:1px solid rgba(255,255,255,.62);box-shadow:0 12px 26px rgba(255,77,94,.16),0 8px 18px rgba(31,211,107,.14)!important;font-size:.72rem;font-weight:950}
+.ai-modal{position:relative;width:min(38rem,100%);max-height:min(86vh,46rem);overflow:auto;padding:1.25rem;border-radius:26px;background:linear-gradient(145deg,#fff,#f7fbff);border:1px solid #dce6f3;box-shadow:0 30px 80px rgba(6,23,53,.32)}
+.ai-modal h3{margin:0 2.6rem .75rem 0;font-size:clamp(1.45rem,4vw,2rem);line-height:1.05;color:var(--night)}
+.ai-modal h4{margin:.85rem 0 .45rem;font-size:1.1rem;color:var(--night)}
+.ai-loading{display:grid;place-items:center;min-height:9rem;border-radius:20px;background:#f4f8ff;color:#53627a;font-weight:950;text-align:center}
+.ai-cache-pill{display:inline-flex;align-items:center;margin:.25rem 0 .2rem;padding:.32rem .55rem;border-radius:999px;background:#dcfce7;color:#067647;font-size:.72rem;font-weight:950}
+.ai-summary{margin:0;color:#334155;font-weight:700;line-height:1.5}
+.ai-pick-card{display:grid;gap:.2rem;margin:1rem 0;padding:.85rem;border-radius:20px;background:linear-gradient(135deg,#061735,#102e63);color:#fff;text-align:center}
+.ai-pick-card span{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#b8c9df;font-weight:950}
+.ai-pick-card strong{font-size:1.2rem}
+.ai-angle-list{display:grid;gap:.45rem;margin:.75rem 0;padding:0;list-style:none}
+.ai-angle-list li{padding:.62rem .7rem;border-radius:16px;background:#f4f8ff;border:1px solid #dce6f3;color:#334155;font-weight:750;line-height:1.35}
+.ai-angle-list li::before{content:"";display:inline-block;width:.42rem;height:.42rem;margin-right:.45rem;border-radius:999px;background:var(--pitch);vertical-align:.08rem}
+.ai-meta{display:flex;justify-content:center;color:#53627a;font-size:.82rem;font-weight:850}
+.ai-disclaimer{margin:.75rem 0 0;color:#667085;font-size:.78rem;text-align:center}
 .icon-button{align-items:center!important;justify-items:center!important;place-content:center!important}
 .profile-glyph{position:relative;left:0;top:0;transform:translateY(-.02rem)}
 .global-leaderboard-panel{margin-bottom:1rem}
@@ -443,6 +458,9 @@ body{overflow-x:hidden}
   .global-prediction-card .teams{gap:.35rem}
   .global-me-row{margin-top:.45rem}
 .global-prediction-modal{max-height:86vh;padding:1rem;border-radius:20px}
+  .ai-backdrop{place-items:center;padding:.75rem}
+  .ai-modal{width:min(100%,24rem);max-height:88vh;border-radius:24px;padding:1rem}
+  .ai-insight-button{font-size:.68rem;margin-bottom:.58rem}
 }
 
 /* Final lobby, footer, and prediction sizing polish */
