@@ -381,8 +381,7 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
   return json(await cachedOrGenerateInsight(env, match, language));
 }
 
-async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: InsightLanguage) {
-  const stats = await buildStatsSnapshot(env, match);
+async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, language: InsightLanguage, stats: Awaited<ReturnType<typeof buildStatsSnapshot>>) {
   const statsJson = JSON.stringify({ prompt_version: INSIGHT_PROMPT_VERSION, language, stats });
   const statsHash = await sha256(statsJson);
   const cached = await env.DB.prepare(`
@@ -411,10 +410,14 @@ async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: Insi
   return { insight, cached: false, updated_at: now, stats_source: stats.source };
 }
 
+async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: InsightLanguage) {
+  return cachedOrGenerateInsightFromStats(env, match, language, await buildStatsSnapshot(env, match));
+}
+
 export async function scheduledAiInsightRefresh(env: Env) {
   const now = new Date();
   const oddsWindowEnd = new Date(now);
-  oddsWindowEnd.setDate(oddsWindowEnd.getDate() + 14);
+  oddsWindowEnd.setDate(oddsWindowEnd.getDate() + 7);
   const rows = await env.DB.prepare(`
     SELECT * FROM matches
     WHERE kickoff_at >= ? AND kickoff_at <= ?
@@ -424,7 +427,9 @@ export async function scheduledAiInsightRefresh(env: Env) {
   `).bind(now.toISOString(), oddsWindowEnd.toISOString()).all<MatchRow>();
 
   for (const match of rows.results ?? []) {
-    await cachedOrGenerateInsight(env, match, "en").catch(() => null);
-    await cachedOrGenerateInsight(env, match, "fr").catch(() => null);
+    const stats = await buildStatsSnapshot(env, match).catch(() => null);
+    if (!stats) continue;
+    await cachedOrGenerateInsightFromStats(env, match, "en", stats).catch(() => null);
+    await cachedOrGenerateInsightFromStats(env, match, "fr", stats).catch(() => null);
   }
 }

@@ -233,12 +233,16 @@ export async function leagueHome(request: Request, env: Env, leagueId: string) {
     effective_away_score: scoreForLiveMatch(match)?.away ?? null,
     predictions: await predictionsForMatch(env, leagueId, match),
   })));
+  const hasImminentMatch = matches.some((match) => {
+    const kickoffAt = new Date(match.kickoff_at).getTime();
+    return !isLiveStatus(match.status) && kickoffAt >= Date.now() && kickoffAt <= Date.now() + 15 * 60_000;
+  });
 
   return json({
     mode: live.length > 0 ? "live" : "official",
     leaderboard,
     matches,
-    poll_seconds: live.length > 0 ? 20 : 60,
+    poll_seconds: live.length > 0 || hasImminentMatch ? 20 : 60,
   });
 }
 
