@@ -29,18 +29,20 @@ type Scorecard = {
   reasons: string[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v11";
+const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v12";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
-  { league: 29, season: 2023, name: "World Cup - Qualification Africa" },
-  { league: 30, season: 2026, name: "World Cup - Qualification Asia" },
-  { league: 31, season: 2026, name: "World Cup - Qualification CONCACAF" },
-  { league: 32, season: 2024, name: "World Cup - Qualification Europe" },
-  { league: 33, season: 2026, name: "World Cup - Qualification Oceania" },
-  { league: 34, season: 2026, name: "World Cup - Qualification South America" },
-  { league: 37, season: 2026, name: "World Cup - Qualification Intercontinental Play-offs" },
+  { league: 29, season: 2023, name: "World Cup - Qualification Africa", confederation: "CAF", strength: 0.98 },
+  { league: 30, season: 2026, name: "World Cup - Qualification Asia", confederation: "AFC", strength: 0.9 },
+  { league: 31, season: 2026, name: "World Cup - Qualification CONCACAF", confederation: "CONCACAF", strength: 0.92 },
+  { league: 32, season: 2024, name: "World Cup - Qualification Europe", confederation: "UEFA", strength: 1.12 },
+  { league: 33, season: 2026, name: "World Cup - Qualification Oceania", confederation: "OFC", strength: 0.75 },
+  { league: 34, season: 2026, name: "World Cup - Qualification South America", confederation: "CONMEBOL", strength: 1.1 },
+  { league: 37, season: 2026, name: "World Cup - Qualification Intercontinental Play-offs", confederation: "PLAYOFF", strength: 1 },
 ] as const;
+
+const HOST_RECENT_FORM_TEAMS = new Set(["Canada", "Mexico", "USA", "United States"]);
 
 const TEAM_STRENGTH_PRIOR: Record<string, number> = {
   Argentina: 95,
@@ -131,6 +133,7 @@ function compactFixture(fixture: any) {
     date: fixture.fixture?.date ?? null,
     status: fixture.fixture?.status?.short ?? fixture.fixture?.status?.long ?? null,
     league: fixture.league ? {
+      id: fixture.league.id ?? null,
       name: fixture.league.name ?? null,
       country: fixture.league.country ?? null,
       season: fixture.league.season ?? null,
@@ -150,6 +153,10 @@ function compactFixture(fixture: any) {
 function isWorldCupQualifierFixture(fixture: any) {
   const leagueId = safeNumber(fixture?.league?.id);
   return WORLD_CUP_2026_QUALIFIER_COMPETITIONS.some((competition) => competition.league === leagueId);
+}
+
+function qualifierCompetitionForLeague(leagueId: number | null) {
+  return WORLD_CUP_2026_QUALIFIER_COMPETITIONS.find((competition) => competition.league === leagueId) ?? null;
 }
 
 function isCompletedFixture(fixture: any) {
@@ -179,7 +186,16 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, before
     .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
     .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
     .slice(0, 12)
-    .map((fixture: any) => ({ ...compactFixture(fixture), result: resultForTeam(fixture, teamId) }))
+    .map((fixture: any) => {
+      const leagueId = safeNumber(fixture?.league?.id);
+      const competition = qualifierCompetitionForLeague(leagueId);
+      return {
+        ...compactFixture(fixture),
+        result: resultForTeam(fixture, teamId),
+        confederation: competition?.confederation ?? null,
+        competition_strength: competition?.strength ?? 1,
+      };
+    })
     .filter(Boolean);
 
   const record = matches.reduce((acc: { wins: number; draws: number; losses: number }, fixture: any) => {
@@ -189,9 +205,47 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, before
     return acc;
   }, { wins: 0, draws: 0, losses: 0 });
 
+  const competitionStrength = matches.length
+    ? matches.reduce((sum: number, fixture: any) => sum + (safeNumber(fixture.competition_strength) ?? 1), 0) / matches.length
+    : 1;
+
   return {
     note: "World Cup 2026 qualification fixtures only, matched by API-Football qualifier league IDs and completed before this match kickoff. Some qualifier competitions use API-Football season labels earlier than 2026.",
     competitions: WORLD_CUP_2026_QUALIFIER_COMPETITIONS,
+    source: "world_cup_qualifiers",
+    competition_strength: Number(competitionStrength.toFixed(2)),
+    record,
+    matches,
+  };
+}
+
+function compactHostRecentHistory(payload: any, teamId: number, teamName: string, beforeIso: string) {
+  const beforeTime = new Date(beforeIso).getTime();
+  const fixtures = Array.isArray(payload?.response) ? payload.response : [];
+  const matches = fixtures
+    .filter((fixture: any) => isCompletedFixture(fixture))
+    .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
+    .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
+    .slice(0, 10)
+    .map((fixture: any) => ({
+      ...compactFixture(fixture),
+      result: resultForTeam(fixture, teamId),
+      confederation: "CONCACAF",
+      competition_strength: 0.92,
+    }))
+    .filter(Boolean);
+  const record = matches.reduce((acc: { wins: number; draws: number; losses: number }, fixture: any) => {
+    if (fixture.result === "W") acc.wins += 1;
+    if (fixture.result === "D") acc.draws += 1;
+    if (fixture.result === "L") acc.losses += 1;
+    return acc;
+  }, { wins: 0, draws: 0, losses: 0 });
+
+  return {
+    note: `${teamName} is a 2026 host, so no normal World Cup qualifier record is available. OddzzAI uses the latest 10 completed matches across all competitions and friendlies instead.`,
+    competitions: [],
+    source: "host_recent_all_competitions",
+    competition_strength: 0.92,
     record,
     matches,
   };
@@ -357,13 +411,15 @@ function qualifierFormSignal(homeHistory: any, awayHistory: any) {
   if (homeMatches < 2 || awayMatches < 2) return { signal: "sparse" as ScoreSignal, reason: "World Cup qualifier history is sparse for at least one team." };
   const homeRecord = homeHistory.record ?? {};
   const awayRecord = awayHistory.record ?? {};
-  const homePpg = ((homeRecord.wins ?? 0) * 3 + (homeRecord.draws ?? 0)) / homeMatches;
-  const awayPpg = ((awayRecord.wins ?? 0) * 3 + (awayRecord.draws ?? 0)) / awayMatches;
+  const homeStrength = safeNumber(homeHistory.competition_strength) ?? 1;
+  const awayStrength = safeNumber(awayHistory.competition_strength) ?? 1;
+  const homePpg = (((homeRecord.wins ?? 0) * 3 + (homeRecord.draws ?? 0)) / homeMatches) * homeStrength;
+  const awayPpg = (((awayRecord.wins ?? 0) * 3 + (awayRecord.draws ?? 0)) / awayMatches) * awayStrength;
   const diff = homePpg - awayPpg;
-  if (Math.abs(diff) < 0.35) return { signal: "balanced" as ScoreSignal, reason: `Qualifier form is close (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match).` };
+  if (Math.abs(diff) < 0.35) return { signal: "balanced" as ScoreSignal, reason: `Adjusted qualifier/form signal is close (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match).` };
   return {
     signal: diff > 0 ? "home" as ScoreSignal : "away" as ScoreSignal,
-    reason: `Qualifier form favors ${diff > 0 ? "home" : "away"} (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match).`,
+    reason: `Adjusted qualifier/form signal favors ${diff > 0 ? "home" : "away"} (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match).`,
   };
 }
 
@@ -457,7 +513,7 @@ async function fetchTeamStats(env: Env, teamId: number | null) {
   return compactTeamStats(await fetchApiFootball(env, "/teams/statistics", { league, season, team: teamId }));
 }
 
-async function fetchWorldCupQualifierHistory(env: Env, teamId: number | null, beforeIso: string) {
+async function fetchWorldCupQualifierHistory(env: Env, teamId: number | null, teamName: string, beforeIso: string) {
   if (!env.FOOTBALL_API_KEY || !teamId) return null;
   const fetchCompetitions = (competitions: ReadonlyArray<{ league: number; season: number }>) => Promise.all(competitions.map((competition) => (
     fetchApiFootball(env, "/fixtures", {
@@ -471,13 +527,9 @@ async function fetchWorldCupQualifierHistory(env: Env, teamId: number | null, be
   const primaryHistory = compactQualifierHistory(primaryPayloads, teamId, beforeIso);
   if (primaryHistory.matches.length > 0) return primaryHistory;
 
-  const targetSeason = safeNumber(env.FOOTBALL_API_SEASON) ?? 2026;
-  const fallbackCompetitions = WORLD_CUP_2026_QUALIFIER_COMPETITIONS
-    .filter((competition) => competition.season !== targetSeason)
-    .map((competition) => ({ league: competition.league, season: targetSeason }));
-  if (!fallbackCompetitions.length) return primaryHistory;
-  const fallbackPayloads = await fetchCompetitions(fallbackCompetitions);
-  return compactQualifierHistory([...primaryPayloads, ...fallbackPayloads], teamId, beforeIso);
+  if (!HOST_RECENT_FORM_TEAMS.has(teamName)) return primaryHistory;
+  const hostPayload = await fetchApiFootball(env, "/fixtures", { team: teamId, last: 10 }).catch(() => null);
+  return compactHostRecentHistory(hostPayload, teamId, teamName, beforeIso);
 }
 
 async function buildStatsSnapshot(env: Env, match: MatchRow) {
@@ -489,8 +541,8 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     fetchTeamStats(env, teams?.away ?? null).catch(() => null),
     teams?.home ? fetchApiFootball(env, "/fixtures", { team: teams.home, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
     teams?.away ? fetchApiFootball(env, "/fixtures", { team: teams.away, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
-    fetchWorldCupQualifierHistory(env, teams?.home ?? null, match.kickoff_at).catch(() => null),
-    fetchWorldCupQualifierHistory(env, teams?.away ?? null, match.kickoff_at).catch(() => null),
+    fetchWorldCupQualifierHistory(env, teams?.home ?? null, match.home_team, match.kickoff_at).catch(() => null),
+    fetchWorldCupQualifierHistory(env, teams?.away ?? null, match.away_team, match.kickoff_at).catch(() => null),
     teams?.home ? fetchApiFootball(env, "/standings", { league, season, team: teams.home }).then(compactStanding).catch(() => null) : null,
     teams?.away ? fetchApiFootball(env, "/standings", { league, season, team: teams.away }).then(compactStanding).catch(() => null) : null,
     teams?.home && teams?.away ? fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${teams.home}-${teams.away}`, last: 10 }).then((payload: any) => payload?.response?.slice(0, 10).map(compactFixture) ?? null).catch(() => null) : null,
@@ -605,7 +657,8 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "Use ONLY the match and stats JSON provided by the user. Do not invent team history, host status, recent form, injuries, rankings, or previous results.",
             "The stats JSON contains oddzz_scorecard. Treat this scorecard as the primary recommendation produced by Oddzz's deterministic engine. Explain it clearly; do not override its suggested_pick unless the provided raw datasets strongly contradict it.",
             "Consider the available datasets in this order: market_odds, provider_prediction, world_cup_qualifiers, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
-            "World Cup qualifier history is an important national-team signal. Treat it as more relevant than generic friendlies or unrelated club-style form, but still respect data recency and opponent quality.",
+            "World Cup qualifier history is an important national-team signal. Oddzz adjusts this signal by confederation strength, so continents are not treated as perfectly equal.",
+            "For 2026 host teams without qualifiers, Oddzz may provide host_recent_all_competitions from their latest 10 completed matches including friendlies. Treat it as useful but weaker than true qualifier data.",
             "If market_odds exists, treat bookmaker odds as a useful market signal, not certainty. Use it especially to break ties when football stats are sparse.",
             "When provider_prediction and live statistics are missing or sparse, use baseline_strength_prior as a heuristic fallback so stronger teams are not treated as automatic 1-1 draws.",
             "If the strength gap is 6+ points, avoid defaulting to a draw unless other provided data clearly supports it.",
@@ -648,6 +701,16 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
   return json(await cachedOrGenerateInsight(env, match, language));
 }
 
+async function latestCachedInsight(env: Env, matchId: string, language: InsightLanguage) {
+  return env.DB.prepare(`
+    SELECT insight_json, updated_at, stats_json FROM ai_fixture_insights
+    WHERE match_id = ?
+      AND json_extract(stats_json, '$.prompt_version') = ?
+      AND json_extract(stats_json, '$.language') = ?
+    ORDER BY updated_at DESC LIMIT 1
+  `).bind(matchId, INSIGHT_PROMPT_VERSION, language).first<{ insight_json: string; updated_at: string; stats_json: string }>();
+}
+
 async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, language: InsightLanguage, stats: Awaited<ReturnType<typeof buildStatsSnapshot>>) {
   const statsJson = JSON.stringify({ prompt_version: INSIGHT_PROMPT_VERSION, language, stats });
   const statsHash = await sha256(statsJson);
@@ -678,6 +741,11 @@ async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, langu
 }
 
 async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: InsightLanguage) {
+  const cached = await latestCachedInsight(env, match.id, language);
+  if (cached) {
+    const parsedStats = JSON.parse(cached.stats_json) as { stats?: { source?: string } };
+    return { insight: JSON.parse(cached.insight_json), cached: true, updated_at: cached.updated_at, stats_source: parsedStats.stats?.source ?? "cached" };
+  }
   return cachedOrGenerateInsightFromStats(env, match, language, await buildStatsSnapshot(env, match));
 }
 
