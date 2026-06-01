@@ -34,11 +34,12 @@ type TeamFormHistory = {
   competitions: ReadonlyArray<unknown>;
   source: string;
   competition_strength: number;
+  adjusted_points_per_match: number;
   record: { wins: number; draws: number; losses: number };
   matches: any[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v13";
+const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v14";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -71,6 +72,8 @@ const TEAM_STRENGTH_PRIOR: Record<string, number> = {
   Denmark: 82,
   Morocco: 82,
   Japan: 81,
+  Czechia: 80,
+  "Czech Republic": 80,
   USA: 79,
   Mexico: 78,
   Senegal: 78,
@@ -82,6 +85,7 @@ const TEAM_STRENGTH_PRIOR: Record<string, number> = {
   Australia: 74,
   "South Korea": 74,
   Canada: 73,
+  Panama: 73,
   Norway: 73,
   Chile: 72,
   Wales: 72,
@@ -92,6 +96,9 @@ const TEAM_STRENGTH_PRIOR: Record<string, number> = {
   Ghana: 69,
   "South Africa": 68,
   "Saudi Arabia": 67,
+  "Bosnia & Herzegovina": 67,
+  "Costa Rica": 67,
+  "Cape Verde": 66,
   Qatar: 64,
   Iran: 64,
 };
@@ -186,6 +193,19 @@ function resultForTeam(fixture: any, teamId: number) {
   return own > against ? "W" : own < against ? "L" : "D";
 }
 
+function opponentNameForTeam(fixture: any, teamId: number) {
+  const homeId = safeNumber(fixture?.teams?.home?.id);
+  const awayId = safeNumber(fixture?.teams?.away?.id);
+  if (homeId === teamId) return fixture?.teams?.away?.name ?? null;
+  if (awayId === teamId) return fixture?.teams?.home?.name ?? null;
+  return null;
+}
+
+function adjustedResultPoints(result: string | null, opponentStrength: number) {
+  const raw = result === "W" ? 3 : result === "D" ? 1 : 0;
+  return raw * Math.max(0.72, Math.min(1.25, opponentStrength / 76));
+}
+
 function compactQualifierHistory(fixturesPayloads: any[], teamId: number, beforeIso: string): TeamFormHistory {
   const beforeTime = new Date(beforeIso).getTime();
   const fixtures = fixturesPayloads.flatMap((payload) => Array.isArray(payload?.response) ? payload.response : []);
@@ -201,6 +221,8 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, before
       return {
         ...compactFixture(fixture),
         result: resultForTeam(fixture, teamId),
+        opponent: opponentNameForTeam(fixture, teamId),
+        opponent_strength: teamStrength(opponentNameForTeam(fixture, teamId) ?? ""),
         confederation: competition?.confederation ?? null,
         competition_strength: competition?.strength ?? 1,
       };
@@ -217,12 +239,18 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, before
   const competitionStrength = matches.length
     ? matches.reduce((sum: number, fixture: any) => sum + (safeNumber(fixture.competition_strength) ?? 1), 0) / matches.length
     : 1;
+  const adjustedPointsPerMatch = matches.length
+    ? matches.reduce((sum: number, fixture: any) => (
+      sum + adjustedResultPoints(fixture.result, safeNumber(fixture.opponent_strength) ?? 72) * (safeNumber(fixture.competition_strength) ?? 1)
+    ), 0) / matches.length
+    : 0;
 
   return {
     note: "World Cup 2026 qualification fixtures only, matched by API-Football qualifier league IDs and completed before this match kickoff. Some qualifier competitions use API-Football season labels earlier than 2026.",
     competitions: WORLD_CUP_2026_QUALIFIER_COMPETITIONS,
     source: "world_cup_qualifiers",
     competition_strength: Number(competitionStrength.toFixed(2)),
+    adjusted_points_per_match: Number(adjustedPointsPerMatch.toFixed(2)),
     record,
     matches,
   };
@@ -239,6 +267,8 @@ function compactHostRecentHistory(payload: any, teamId: number, teamName: string
     .map((fixture: any) => ({
       ...compactFixture(fixture),
       result: resultForTeam(fixture, teamId),
+      opponent: opponentNameForTeam(fixture, teamId),
+      opponent_strength: teamStrength(opponentNameForTeam(fixture, teamId) ?? ""),
       confederation: "CONCACAF",
       competition_strength: 0.92,
     }))
@@ -250,11 +280,18 @@ function compactHostRecentHistory(payload: any, teamId: number, teamName: string
     return acc;
   }, { wins: 0, draws: 0, losses: 0 });
 
+  const adjustedPointsPerMatch = matches.length
+    ? matches.reduce((sum: number, fixture: any) => (
+      sum + adjustedResultPoints(fixture.result, safeNumber(fixture.opponent_strength) ?? 72) * (safeNumber(fixture.competition_strength) ?? 1)
+    ), 0) / matches.length
+    : 0;
+
   return {
     note: `${teamName} is a 2026 host, so no normal World Cup qualifier record is available. OddzzAI uses the latest 10 completed matches across all competitions and friendlies instead.`,
     competitions: [],
     source: "host_recent_all_competitions",
     competition_strength: 0.92,
+    adjusted_points_per_match: Number(adjustedPointsPerMatch.toFixed(2)),
     record,
     matches,
   };
@@ -422,8 +459,10 @@ function qualifierFormSignal(homeHistory: any, awayHistory: any) {
   const awayRecord = awayHistory.record ?? {};
   const homeStrength = safeNumber(homeHistory.competition_strength) ?? 1;
   const awayStrength = safeNumber(awayHistory.competition_strength) ?? 1;
-  const homePpg = (((homeRecord.wins ?? 0) * 3 + (homeRecord.draws ?? 0)) / homeMatches) * homeStrength;
-  const awayPpg = (((awayRecord.wins ?? 0) * 3 + (awayRecord.draws ?? 0)) / awayMatches) * awayStrength;
+  const homePpg = safeNumber(homeHistory.adjusted_points_per_match)
+    ?? ((((homeRecord.wins ?? 0) * 3 + (homeRecord.draws ?? 0)) / homeMatches) * homeStrength);
+  const awayPpg = safeNumber(awayHistory.adjusted_points_per_match)
+    ?? ((((awayRecord.wins ?? 0) * 3 + (awayRecord.draws ?? 0)) / awayMatches) * awayStrength);
   const diff = homePpg - awayPpg;
   if (Math.abs(diff) < 0.35) return { signal: "balanced" as ScoreSignal, reason: `Adjusted qualifier/form signal is close (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match).` };
   return {
