@@ -20,6 +20,13 @@ async function isNicknameTaken(env: Env, nickname: string, exceptUserId?: string
   return !!row;
 }
 
+async function isLeagueMember(env: Env, leagueId: string, userId: string) {
+  return !!(await env.DB.prepare(`
+    SELECT id FROM league_members
+    WHERE league_id = ? AND user_id = ? AND removed_at IS NULL
+  `).bind(leagueId, userId).first());
+}
+
 export async function me(request: Request, env: Env) {
   const user = await requireUser(request, env);
   if (!user) {
@@ -87,7 +94,9 @@ export async function joinLeague(request: Request, env: Env) {
 }
 
 export async function leaderboard(request: Request, env: Env, leagueId: string) {
-  if (!(await requireUser(request, env))) return badRequest("Not authenticated.", 401);
+  const user = await requireUser(request, env);
+  if (!user) return badRequest("Not authenticated.", 401);
+  if (!(await isLeagueMember(env, leagueId, user.id))) return badRequest("You are not a member of this league.", 403);
   const rows = await env.DB.prepare(`
     WITH global_predictions AS (
       SELECT user_id, match_id, MAX(points) as points, MAX(is_exact) as is_exact, MAX(is_correct_result) as is_correct_result, MAX(bonus_used) as bonus_used
@@ -158,8 +167,7 @@ export async function myPredictions(request: Request, env: Env, leagueId?: strin
   const user = await requireUser(request, env);
   if (!user) return badRequest("Not authenticated.", 401);
   if (leagueId) {
-    const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
-    if (!membership) return badRequest("You are not a member of this league.", 403);
+    if (!(await isLeagueMember(env, leagueId, user.id))) return badRequest("You are not a member of this league.", 403);
   }
   const rows = await env.DB.prepare("SELECT match_id, MAX(home_score) as home_score, MAX(away_score) as away_score, MAX(points) as points, MAX(bonus_used) as bonus_used, MAX(updated_at) as updated_at FROM predictions WHERE user_id = ? GROUP BY match_id").bind(user.id).all();
   return json({ predictions: rows.results ?? [] });
@@ -177,8 +185,7 @@ export async function upsertPrediction(request: Request, env: Env, leagueId?: st
   const awayScore = parseScore(body.awayScore);
   if (!body.matchId || homeScore === null || awayScore === null) return badRequest("Prediction is incomplete.");
   if (leagueId) {
-    const membership = await env.DB.prepare("SELECT id FROM league_members WHERE league_id = ? AND user_id = ? AND removed_at IS NULL").bind(leagueId, user.id).first();
-    if (!membership) return badRequest("You are not a member of this league.", 403);
+    if (!(await isLeagueMember(env, leagueId, user.id))) return badRequest("You are not a member of this league.", 403);
   }
   const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(body.matchId).first<MatchRow>();
   if (!match) return badRequest("Match not found.", 404);
@@ -201,6 +208,7 @@ export async function upsertPrediction(request: Request, env: Env, leagueId?: st
 export async function matchPredictions(request: Request, env: Env, leagueId: string, matchId: string) {
   const user = await requireUser(request, env);
   if (!user) return badRequest("Not authenticated.", 401);
+  if (!(await isLeagueMember(env, leagueId, user.id))) return badRequest("You are not a member of this league.", 403);
   const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(matchId).first<MatchRow>();
   if (!match) return badRequest("Match not found.", 404);
   const hasStarted = matchLocksPredictions(match);
