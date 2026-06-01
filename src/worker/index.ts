@@ -33,7 +33,7 @@ import {
 } from "./global-admin";
 import { leagueHome } from "./live";
 import { scheduledSync, syncWorldCupMatches } from "./sync";
-import { fixtureAiInsight } from "./ai";
+import { fixtureAiInsight, scheduledAiInsightRefresh } from "./ai";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -142,7 +142,11 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    if (event.cron === "0 */6 * * *") {
+      ctx.waitUntil(scheduledAiInsightRefresh(env));
+      return;
+    }
     ctx.waitUntil(scheduledSync(env));
   },
 };

@@ -14,7 +14,7 @@ type InsightPayload = {
   disclaimer: string;
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-strength-prior-v6";
+const INSIGHT_PROMPT_VERSION = "2026-06-01-odds-prior-v7";
 type InsightLanguage = "en" | "fr";
 
 const TEAM_STRENGTH_PRIOR: Record<string, number> = {
@@ -170,6 +170,27 @@ function compactInjuries(payload: any) {
   })).filter((item: any) => item.player || item.team || item.reason);
 }
 
+function compactOdds(payload: any) {
+  const rows = Array.isArray(payload?.response) ? payload.response : [];
+  const bookmaker = rows[0]?.bookmakers?.[0];
+  if (!bookmaker) return null;
+  const bets = Array.isArray(bookmaker.bets) ? bookmaker.bets : [];
+  const interestingMarkets = new Set(["Match Winner", "Home/Away", "Goals Over/Under", "Both Teams Score", "Double Chance"]);
+  return {
+    bookmaker: bookmaker.name ?? null,
+    markets: bets
+      .filter((bet: any) => interestingMarkets.has(bet.name))
+      .slice(0, 4)
+      .map((bet: any) => ({
+        name: bet.name ?? null,
+        values: Array.isArray(bet.values) ? bet.values.slice(0, 8).map((value: any) => ({
+          label: value.value ?? null,
+          odd: value.odd ?? null,
+        })) : [],
+      })),
+  };
+}
+
 function teamStrength(name: string) {
   return TEAM_STRENGTH_PRIOR[name] ?? 72;
 }
@@ -207,7 +228,7 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
   const teams = await fetchFixtureTeams(env, match.external_id).catch(() => null);
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
-  const [homeStats, awayStats, homeForm, awayForm, homeStanding, awayStanding, h2h, providerPrediction, injuries] = await Promise.all([
+  const [homeStats, awayStats, homeForm, awayForm, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
     fetchTeamStats(env, teams?.home ?? null).catch(() => null),
     fetchTeamStats(env, teams?.away ?? null).catch(() => null),
     teams?.home ? fetchApiFootball(env, "/fixtures", { team: teams.home, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
@@ -217,8 +238,10 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     teams?.home && teams?.away ? fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${teams.home}-${teams.away}`, last: 10 }).then((payload: any) => payload?.response?.slice(0, 10).map(compactFixture) ?? null).catch(() => null) : null,
     fetchApiFootball(env, "/predictions", { fixture: match.external_id }).then(compactPrediction).catch(() => null),
     fetchApiFootball(env, "/injuries", { fixture: match.external_id }).then(compactInjuries).catch(() => null),
+    fetchApiFootball(env, "/odds", { fixture: match.external_id }).then(compactOdds).catch(() => null),
   ]);
   const datasets = {
+    odds: !!odds,
     team_statistics: !!(homeStats || awayStats),
     recent_form: !!((homeForm?.length ?? 0) || (awayForm?.length ?? 0)),
     standings: !!(homeStanding || awayStanding),
@@ -241,6 +264,7 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     },
     source: Object.values(datasets).some(Boolean) ? "football-api-scouting-pack" : "match-context",
     datasets,
+    market_odds: odds,
     provider_prediction: providerPrediction,
     head_to_head: h2h ?? [],
     injuries: injuries ?? [],
@@ -315,7 +339,8 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
           content: [
             "You are Oddzz AI, a friendly World Cup prediction assistant for entertainment only.",
             "Use ONLY the match and stats JSON provided by the user. Do not invent team history, host status, recent form, injuries, rankings, or previous results.",
-            "Consider the available datasets in this order: provider_prediction, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
+            "Consider the available datasets in this order: market_odds, provider_prediction, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
+            "If market_odds exists, treat bookmaker odds as a useful market signal, not certainty. Use it especially to break ties when football stats are sparse.",
             "When provider_prediction and live statistics are missing or sparse, use baseline_strength_prior as a heuristic fallback so stronger teams are not treated as automatic 1-1 draws.",
             "If the strength gap is 6+ points, avoid defaulting to a draw unless other provided data clearly supports it.",
             "If API-Football's provider_prediction exists, treat it as one useful signal, not as guaranteed truth.",
@@ -353,6 +378,10 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
   if (!match) return badRequest("Match not found.", 404);
   const language = new URL(request.url).searchParams.get("lang") === "fr" ? "fr" : "en";
 
+  return json(await cachedOrGenerateInsight(env, match, language));
+}
+
+async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: InsightLanguage) {
   const stats = await buildStatsSnapshot(env, match);
   const statsJson = JSON.stringify({ prompt_version: INSIGHT_PROMPT_VERSION, language, stats });
   const statsHash = await sha256(statsJson);
@@ -363,7 +392,7 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
   `).bind(match.id, statsHash).first<{ insight_json: string; updated_at: string }>();
 
   if (cached) {
-    return json({ insight: JSON.parse(cached.insight_json), cached: true, updated_at: cached.updated_at, stats_source: stats.source });
+    return { insight: JSON.parse(cached.insight_json), cached: true, updated_at: cached.updated_at, stats_source: stats.source };
   }
 
   let insight: InsightPayload;
@@ -379,5 +408,23 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).bind(crypto.randomUUID(), match.id, statsHash, statsJson, JSON.stringify(insight), now, now).run();
 
-  return json({ insight, cached: false, updated_at: now, stats_source: stats.source });
+  return { insight, cached: false, updated_at: now, stats_source: stats.source };
+}
+
+export async function scheduledAiInsightRefresh(env: Env) {
+  const now = new Date();
+  const oddsWindowEnd = new Date(now);
+  oddsWindowEnd.setDate(oddsWindowEnd.getDate() + 14);
+  const rows = await env.DB.prepare(`
+    SELECT * FROM matches
+    WHERE kickoff_at >= ? AND kickoff_at <= ?
+      AND LOWER(status) NOT IN ('finished', 'cancelled', 'postponed')
+    ORDER BY kickoff_at ASC
+    LIMIT 80
+  `).bind(now.toISOString(), oddsWindowEnd.toISOString()).all<MatchRow>();
+
+  for (const match of rows.results ?? []) {
+    await cachedOrGenerateInsight(env, match, "en").catch(() => null);
+    await cachedOrGenerateInsight(env, match, "fr").catch(() => null);
+  }
 }
