@@ -29,7 +29,16 @@ type Scorecard = {
   reasons: string[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v12";
+type TeamFormHistory = {
+  note: string;
+  competitions: ReadonlyArray<unknown>;
+  source: string;
+  competition_strength: number;
+  record: { wins: number; draws: number; losses: number };
+  matches: any[];
+};
+
+const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v13";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -177,7 +186,7 @@ function resultForTeam(fixture: any, teamId: number) {
   return own > against ? "W" : own < against ? "L" : "D";
 }
 
-function compactQualifierHistory(fixturesPayloads: any[], teamId: number, beforeIso: string) {
+function compactQualifierHistory(fixturesPayloads: any[], teamId: number, beforeIso: string): TeamFormHistory {
   const beforeTime = new Date(beforeIso).getTime();
   const fixtures = fixturesPayloads.flatMap((payload) => Array.isArray(payload?.response) ? payload.response : []);
   const matches = fixtures
@@ -219,7 +228,7 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, before
   };
 }
 
-function compactHostRecentHistory(payload: any, teamId: number, teamName: string, beforeIso: string) {
+function compactHostRecentHistory(payload: any, teamId: number, teamName: string, beforeIso: string): TeamFormHistory {
   const beforeTime = new Date(beforeIso).getTime();
   const fixtures = Array.isArray(payload?.response) ? payload.response : [];
   const matches = fixtures
@@ -513,21 +522,18 @@ async function fetchTeamStats(env: Env, teamId: number | null) {
   return compactTeamStats(await fetchApiFootball(env, "/teams/statistics", { league, season, team: teamId }));
 }
 
-async function fetchWorldCupQualifierHistory(env: Env, teamId: number | null, teamName: string, beforeIso: string) {
-  if (!env.FOOTBALL_API_KEY || !teamId) return null;
-  const fetchCompetitions = (competitions: ReadonlyArray<{ league: number; season: number }>) => Promise.all(competitions.map((competition) => (
+async function fetchWorldCupQualifierPayloads(env: Env) {
+  if (!env.FOOTBALL_API_KEY) return [];
+  return Promise.all(WORLD_CUP_2026_QUALIFIER_COMPETITIONS.map((competition) => (
     fetchApiFootball(env, "/fixtures", {
-      team: teamId,
       league: competition.league,
       season: competition.season,
     }).catch(() => null)
   )));
+}
 
-  const primaryPayloads = await fetchCompetitions(WORLD_CUP_2026_QUALIFIER_COMPETITIONS);
-  const primaryHistory = compactQualifierHistory(primaryPayloads, teamId, beforeIso);
-  if (primaryHistory.matches.length > 0) return primaryHistory;
-
-  if (!HOST_RECENT_FORM_TEAMS.has(teamName)) return primaryHistory;
+async function fetchHostRecentHistory(env: Env, teamId: number | null, teamName: string, beforeIso: string) {
+  if (!env.FOOTBALL_API_KEY || !teamId || !HOST_RECENT_FORM_TEAMS.has(teamName)) return null;
   const hostPayload = await fetchApiFootball(env, "/fixtures", { team: teamId, last: 10 }).catch(() => null);
   return compactHostRecentHistory(hostPayload, teamId, teamName, beforeIso);
 }
@@ -536,13 +542,12 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
   const teams = await fetchFixtureTeams(env, match.external_id).catch(() => null);
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
-  const [homeStats, awayStats, homeForm, awayForm, homeQualifierHistory, awayQualifierHistory, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
+  const [homeStats, awayStats, homeForm, awayForm, qualifierPayloads, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
     fetchTeamStats(env, teams?.home ?? null).catch(() => null),
     fetchTeamStats(env, teams?.away ?? null).catch(() => null),
     teams?.home ? fetchApiFootball(env, "/fixtures", { team: teams.home, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
     teams?.away ? fetchApiFootball(env, "/fixtures", { team: teams.away, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
-    fetchWorldCupQualifierHistory(env, teams?.home ?? null, match.home_team, match.kickoff_at).catch(() => null),
-    fetchWorldCupQualifierHistory(env, teams?.away ?? null, match.away_team, match.kickoff_at).catch(() => null),
+    fetchWorldCupQualifierPayloads(env).catch(() => []),
     teams?.home ? fetchApiFootball(env, "/standings", { league, season, team: teams.home }).then(compactStanding).catch(() => null) : null,
     teams?.away ? fetchApiFootball(env, "/standings", { league, season, team: teams.away }).then(compactStanding).catch(() => null) : null,
     teams?.home && teams?.away ? fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${teams.home}-${teams.away}`, last: 10 }).then((payload: any) => payload?.response?.slice(0, 10).map(compactFixture) ?? null).catch(() => null) : null,
@@ -550,6 +555,14 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     fetchApiFootball(env, "/injuries", { fixture: match.external_id }).then(compactInjuries).catch(() => null),
     fetchApiFootball(env, "/odds", { fixture: match.external_id }).then(compactOdds).catch(() => null),
   ]);
+  let homeQualifierHistory = teams?.home ? compactQualifierHistory(qualifierPayloads, teams.home, match.kickoff_at) : null;
+  let awayQualifierHistory = teams?.away ? compactQualifierHistory(qualifierPayloads, teams.away, match.kickoff_at) : null;
+  if (homeQualifierHistory && homeQualifierHistory.matches.length === 0 && HOST_RECENT_FORM_TEAMS.has(match.home_team)) {
+    homeQualifierHistory = await fetchHostRecentHistory(env, teams?.home ?? null, match.home_team, match.kickoff_at).catch(() => homeQualifierHistory);
+  }
+  if (awayQualifierHistory && awayQualifierHistory.matches.length === 0 && HOST_RECENT_FORM_TEAMS.has(match.away_team)) {
+    awayQualifierHistory = await fetchHostRecentHistory(env, teams?.away ?? null, match.away_team, match.kickoff_at).catch(() => awayQualifierHistory);
+  }
   const datasets = {
     odds: !!odds,
     world_cup_qualifiers: !!((homeQualifierHistory?.matches.length ?? 0) || (awayQualifierHistory?.matches.length ?? 0)),
