@@ -426,6 +426,11 @@ body{overflow-x:hidden}
 .ai-pick-card{display:grid;gap:.2rem;margin:1rem 0;padding:.85rem;border-radius:20px;background:linear-gradient(135deg,#061735,#102e63);color:#fff;text-align:center}
 .ai-pick-card span{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#b8c9df;font-weight:950}
 .ai-pick-card strong{font-size:1.2rem}
+.ai-bonus-card{display:grid;gap:.18rem;margin:-.35rem 0 .85rem;padding:.72rem .8rem;border-radius:18px;background:#f4f8ff;border:1px solid #dce6f3;text-align:center;color:#334155}
+.ai-bonus-card.is-on{background:linear-gradient(135deg,rgba(31,211,107,.16),rgba(255,201,71,.18));border-color:rgba(31,211,107,.34)}
+.ai-bonus-card span{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:#53627a;font-weight:950}
+.ai-bonus-card strong{color:var(--night);font-size:1rem}
+.ai-bonus-card p{margin:0;color:#53627a;font-size:.82rem;font-weight:750;line-height:1.35}
 .ai-angle-list{display:grid;gap:.45rem;margin:.75rem 0;padding:0;list-style:none}
 .ai-angle-list li{padding:.62rem .7rem;border-radius:16px;background:#f4f8ff;border:1px solid #dce6f3;color:#334155;font-weight:750;line-height:1.35}
 .ai-angle-list li::before{content:"";display:inline-block;width:.42rem;height:.42rem;margin-right:.45rem;border-radius:999px;background:var(--pitch);vertical-align:.08rem}

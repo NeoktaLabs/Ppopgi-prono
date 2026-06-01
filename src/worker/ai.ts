@@ -6,11 +6,15 @@ type InsightPayload = {
   summary: string;
   angles: string[];
   suggested_pick: string;
+  bonus_recommendation: {
+    use_bonus: boolean;
+    reason: string;
+  };
   confidence: "low" | "medium" | "high";
   disclaimer: string;
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-scouting-pack-i18n-v4";
+const INSIGHT_PROMPT_VERSION = "2026-06-01-scouting-pack-bonus-v5";
 type InsightLanguage = "en" | "fr";
 
 class AiProviderError extends Error {
@@ -197,6 +201,10 @@ function fallbackInsight(match: MatchRow, statsSource: string): InsightPayload {
       `A cautious pick is usually better than chasing a huge scoreline in group-stage style fixtures.`,
     ],
     suggested_pick: `${match.home_team} 1-1 ${match.away_team}`,
+    bonus_recommendation: {
+      use_bonus: false,
+      reason: "Do not use a bonus when confidence is low or the data is sparse.",
+    },
     confidence: "low",
     disclaimer: "AI insight for fun only. Not betting advice.",
   };
@@ -210,6 +218,10 @@ function coerceInsight(value: any, match: MatchRow): InsightPayload {
     summary: String(value?.summary || "No summary available."),
     angles: Array.isArray(value?.angles) ? value.angles.slice(0, 4).map(String) : [],
     suggested_pick: suggestedPick,
+    bonus_recommendation: {
+      use_bonus: value?.bonus_recommendation?.use_bonus === true,
+      reason: String(value?.bonus_recommendation?.reason || "No bonus recommendation available."),
+    },
     confidence: ["low", "medium", "high"].includes(value?.confidence) ? value.confidence : "low",
     disclaimer: String(value?.disclaimer || "AI insight for fun only. Not betting advice."),
   };
@@ -240,9 +252,10 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "If API-Football's provider_prediction exists, treat it as one useful signal, not as guaranteed truth.",
             "If team stats are null or sparse, say clearly that there is not enough statistical data yet and keep confidence low.",
             "The suggested_pick must be an exact scoreline in the format 'Team A 1-1 Team B', not just a winner.",
+            "Also recommend whether OddzzAI should use one of its two x5 bonuses. It can only use bonuses on group-stage matches, and only when confidence is high enough to justify the risk.",
             "Keep the answer concise and useful for a prediction game.",
             languageInstruction,
-            "Return strict JSON with keys: headline, summary, angles, suggested_pick, confidence, disclaimer.",
+            "Return strict JSON with keys: headline, summary, angles, suggested_pick, bonus_recommendation, confidence, disclaimer. bonus_recommendation must be an object with boolean use_bonus and string reason.",
           ].join(" "),
         },
         {

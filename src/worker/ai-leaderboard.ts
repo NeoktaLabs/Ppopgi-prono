@@ -1,5 +1,5 @@
 import type { Env, MatchRow } from "./types";
-import { calculatePredictionPoints, multiplierForStage, usableFinalScore } from "./scoring";
+import { calculatePredictionPoints, isGroupStage, multiplierForStage, usableFinalScore } from "./scoring";
 
 export const ODDZZ_AI_USER_ID = "__oddzz_ai__";
 export const ODDZZ_AI_NICKNAME = "OddzzAI";
@@ -21,6 +21,7 @@ export type LeaderboardLikeRow = {
 
 type AiInsightRow = MatchRow & {
   insight_json: string;
+  insight_created_at: string;
 };
 
 function isLiveStatus(status: string) {
@@ -42,12 +43,26 @@ function scoreForMatch(match: MatchRow, includeLive: boolean) {
 }
 
 function parseInsightJson(value: string) {
-  return JSON.parse(value) as { suggested_pick?: string };
+  return JSON.parse(value) as { suggested_pick?: string; bonus_recommendation?: { use_bonus?: boolean } };
+}
+
+function canUseAiBonus(row: AiInsightRow, insight: ReturnType<typeof parseInsightJson>) {
+  return insight.bonus_recommendation?.use_bonus === true && isGroupStage(row.stage) && new Date(row.insight_created_at).getTime() <= new Date(row.kickoff_at).getTime();
+}
+
+function aiBonusMatchIds(rows: AiInsightRow[]) {
+  const ids = new Set<string>();
+  for (const row of rows.slice().sort((a, b) => new Date(a.kickoff_at).getTime() - new Date(b.kickoff_at).getTime())) {
+    if (ids.size >= 2) break;
+    const insight = parseInsightJson(row.insight_json);
+    if (canUseAiBonus(row, insight)) ids.add(row.id);
+  }
+  return ids;
 }
 
 export async function oddzzAiLeaderboardRow(env: Env, includeLive = false): Promise<Omit<LeaderboardLikeRow, "rank"> | null> {
   const rows = await env.DB.prepare(`
-    SELECT matches.*, insights.insight_json
+    SELECT matches.*, insights.insight_json, insights.created_at as insight_created_at
     FROM matches
     JOIN (
       SELECT match_id, MAX(updated_at) as updated_at
@@ -61,14 +76,17 @@ export async function oddzzAiLeaderboardRow(env: Env, includeLive = false): Prom
   let exactScores = 0;
   let correctResults = 0;
   let predictionsCount = 0;
+  const allRows = rows.results ?? [];
+  const bonusMatchIds = aiBonusMatchIds(allRows);
 
-  for (const row of rows.results ?? []) {
-    const score = scoreForMatch(row, includeLive);
-    if (!score) continue;
-
+  for (const row of allRows) {
     const insight = parseInsightJson(row.insight_json);
     const predicted = parseAiScoreline(insight.suggested_pick);
     if (!predicted) continue;
+    predictionsCount += 1;
+
+    const score = scoreForMatch(row, includeLive);
+    if (!score) continue;
 
     const result = calculatePredictionPoints({
       predictedHome: predicted.home,
@@ -76,15 +94,13 @@ export async function oddzzAiLeaderboardRow(env: Env, includeLive = false): Prom
       finalHome: score.home,
       finalAway: score.away,
       multiplier: multiplierForStage(row.stage),
+      bonusMultiplier: bonusMatchIds.has(row.id) ? 5 : 1,
     });
 
     points += result.points;
     exactScores += result.isExact ? 1 : 0;
     correctResults += result.isCorrectResult ? 1 : 0;
-    predictionsCount += 1;
   }
-
-  if (predictionsCount === 0) return null;
 
   return {
     user_id: ODDZZ_AI_USER_ID,
@@ -93,14 +109,14 @@ export async function oddzzAiLeaderboardRow(env: Env, includeLive = false): Prom
     exact_scores: exactScores,
     correct_results: correctResults,
     predictions_count: predictionsCount,
-    bonuses_remaining: 0,
+    bonuses_remaining: Math.max(0, 2 - bonusMatchIds.size),
     is_ai: true,
   };
 }
 
 export async function oddzzAiVisiblePredictions(env: Env) {
   const rows = await env.DB.prepare(`
-    SELECT matches.*, insights.insight_json
+    SELECT matches.*, insights.insight_json, insights.created_at as insight_created_at
     FROM matches
     JOIN (
       SELECT match_id, MAX(updated_at) as updated_at
@@ -115,7 +131,10 @@ export async function oddzzAiVisiblePredictions(env: Env) {
     ORDER BY matches.kickoff_at DESC
   `).all<AiInsightRow>();
 
-  return (rows.results ?? []).map((row) => {
+  const allRows = rows.results ?? [];
+  const bonusMatchIds = aiBonusMatchIds(allRows);
+
+  return allRows.map((row) => {
     const insight = parseInsightJson(row.insight_json);
     const predicted = parseAiScoreline(insight.suggested_pick);
     const score = scoreForMatch(row, true);
@@ -126,6 +145,7 @@ export async function oddzzAiVisiblePredictions(env: Env) {
           finalHome: score.home,
           finalAway: score.away,
           multiplier: multiplierForStage(row.stage),
+          bonusMultiplier: bonusMatchIds.has(row.id) ? 5 : 1,
         }).points
       : null;
 
@@ -135,7 +155,7 @@ export async function oddzzAiVisiblePredictions(env: Env) {
       home_score: predicted?.home ?? null,
       away_score: predicted?.away ?? null,
       points,
-      bonus_used: 0,
+      bonus_used: bonusMatchIds.has(row.id) ? 1 : 0,
     };
   });
 }
