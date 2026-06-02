@@ -47,7 +47,7 @@ type TeamFormHistory = {
   matches: any[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v20";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v21";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -231,23 +231,41 @@ function isCompletedFixture(fixture: any) {
   return ["FT", "AET", "PEN"].includes(short) || long.includes("match finished");
 }
 
-function resultForTeam(fixture: any, teamId: number) {
+function normalizeTeamName(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\bislands?\b/g, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
+}
+
+function sideForTeam(fixture: any, teamId: number, teamName: string) {
   const homeId = safeNumber(fixture?.teams?.home?.id);
   const awayId = safeNumber(fixture?.teams?.away?.id);
+  const targetName = normalizeTeamName(teamName);
+  const homeName = normalizeTeamName(fixture?.teams?.home?.name);
+  const awayName = normalizeTeamName(fixture?.teams?.away?.name);
+  if (homeId === teamId || (targetName && homeName === targetName)) return "home";
+  if (awayId === teamId || (targetName && awayName === targetName)) return "away";
+  return null;
+}
+
+function resultForTeam(fixture: any, teamId: number, teamName: string) {
+  const side = sideForTeam(fixture, teamId, teamName);
   const homeGoals = safeNumber(fixture?.goals?.home ?? fixture?.score?.fulltime?.home);
   const awayGoals = safeNumber(fixture?.goals?.away ?? fixture?.score?.fulltime?.away);
   if (homeGoals === null || awayGoals === null) return null;
-  if (homeId !== teamId && awayId !== teamId) return null;
-  const own = homeId === teamId ? homeGoals : awayGoals;
-  const against = homeId === teamId ? awayGoals : homeGoals;
+  if (!side) return null;
+  const own = side === "home" ? homeGoals : awayGoals;
+  const against = side === "home" ? awayGoals : homeGoals;
   return own > against ? "W" : own < against ? "L" : "D";
 }
 
-function opponentNameForTeam(fixture: any, teamId: number) {
-  const homeId = safeNumber(fixture?.teams?.home?.id);
-  const awayId = safeNumber(fixture?.teams?.away?.id);
-  if (homeId === teamId) return fixture?.teams?.away?.name ?? null;
-  if (awayId === teamId) return fixture?.teams?.home?.name ?? null;
+function opponentNameForTeam(fixture: any, teamId: number, teamName: string) {
+  const side = sideForTeam(fixture, teamId, teamName);
+  if (side === "home") return fixture?.teams?.away?.name ?? null;
+  if (side === "away") return fixture?.teams?.home?.name ?? null;
   return null;
 }
 
@@ -297,19 +315,20 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, teamNa
     .filter((fixture: any) => isWorldCupQualifierFixture(fixture))
     .filter((fixture: any) => isCompletedFixture(fixture))
     .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
+    .filter((fixture: any) => sideForTeam(fixture, teamId, teamName) !== null)
     .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
     .slice(0, 12)
     .map((fixture: any) => {
       const leagueId = safeNumber(fixture?.league?.id);
       const competition = qualifierCompetitionForLeague(leagueId);
-      const homeId = safeNumber(fixture?.teams?.home?.id);
-      const awayId = safeNumber(fixture?.teams?.away?.id);
+      const side = sideForTeam(fixture, teamId, teamName);
+      const opponent = opponentNameForTeam(fixture, teamId, teamName);
       return {
         ...compactFixture(fixture),
-        result: resultForTeam(fixture, teamId),
-        team_side: homeId === teamId ? "home" : awayId === teamId ? "away" : null,
-        opponent: opponentNameForTeam(fixture, teamId),
-        opponent_strength: teamStrength(opponentNameForTeam(fixture, teamId) ?? ""),
+        result: resultForTeam(fixture, teamId, teamName),
+        team_side: side,
+        opponent,
+        opponent_strength: teamStrength(opponent ?? ""),
         confederation: competition?.confederation ?? null,
         competition_strength: competition?.strength ?? 1,
       };
@@ -354,17 +373,18 @@ function compactHostRecentHistory(payload: any, teamId: number, teamName: string
   const matches = fixtures
     .filter((fixture: any) => isCompletedFixture(fixture))
     .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
+    .filter((fixture: any) => sideForTeam(fixture, teamId, teamName) !== null)
     .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
     .slice(0, 10)
     .map((fixture: any) => {
-      const homeId = safeNumber(fixture?.teams?.home?.id);
-      const awayId = safeNumber(fixture?.teams?.away?.id);
+      const side = sideForTeam(fixture, teamId, teamName);
+      const opponent = opponentNameForTeam(fixture, teamId, teamName);
       return {
         ...compactFixture(fixture),
-        result: resultForTeam(fixture, teamId),
-        team_side: homeId === teamId ? "home" : awayId === teamId ? "away" : null,
-        opponent: opponentNameForTeam(fixture, teamId),
-        opponent_strength: teamStrength(opponentNameForTeam(fixture, teamId) ?? ""),
+        result: resultForTeam(fixture, teamId, teamName),
+        team_side: side,
+        opponent,
+        opponent_strength: teamStrength(opponent ?? ""),
         confederation: "CONCACAF",
         competition_strength: 0.92,
       };
@@ -683,6 +703,13 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
 
 function teamInsightSummary(teamName: string, history: TeamFormHistory | null, fallbackForm: any[]) {
   const source = history?.source ?? (fallbackForm.length ? "recent_form" : "unavailable");
+  const sourceLabel = source === "world_cup_qualifiers"
+    ? "World Cup qualifier matches"
+    : source === "host_recent_all_competitions"
+      ? "latest matches across all competitions and friendlies because this host team has no normal qualifier campaign"
+      : source === "recent_form"
+        ? "recent matches from API-Football"
+        : "no form data available";
   const lastThree = history?.last_3_summary ?? {
     record: { wins: 0, draws: 0, losses: 0 },
     goals_for: 0,
@@ -692,6 +719,7 @@ function teamInsightSummary(teamName: string, history: TeamFormHistory | null, f
   return {
     team: teamName,
     source,
+    source_label: sourceLabel,
     matches_available: history?.matches.length ?? fallbackForm.length,
     full_record: history?.record ?? null,
     adjusted_points_per_match: history?.adjusted_points_per_match ?? null,
@@ -895,6 +923,7 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "You may mention tournament_context when present: USA, Canada and Mexico get a small host/travel context edge, and North/South American teams may get a smaller regional travel/context edge. Describe this as regional context, never as home advantage unless the team is actually a host playing in its host country.",
             "The stats JSON contains oddzz_scorecard. Treat this scorecard as the primary recommendation produced by Oddzz's deterministic engine. Explain it clearly; do not override its suggested_pick unless the provided raw datasets strongly contradict it.",
             "The stats JSON also contains scouting_insights. Use scouting_insights as the main source for user-facing bullets: last 3 results, goals scored, goals conceded, adjusted points per match, average opponent strength, and injury watch.",
+            "When writing form bullets, use scouting_insights.form_comparison.home.source_label and scouting_insights.form_comparison.away.source_label. If a team source is host_recent_all_competitions or recent_form, do not describe that data as World Cup qualifiers.",
             "The angles array should be concrete and numerical where possible. Prefer bullets like 'Portugal last 3 qualifiers: W-W-D, 7 scored, 2 conceded, avg opponent strength 71.3' over generic statements like 'Portugal is stronger'.",
             "When injuries are available, mention key absences by player/team/reason. If injury data is unavailable, say 'No fixture injury list available yet' only if useful; do not overstate it.",
             "Consider the available datasets in this order: market_odds, provider_prediction, world_cup_qualifiers, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
