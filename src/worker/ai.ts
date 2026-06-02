@@ -22,6 +22,7 @@ type Scorecard = {
   qualifier_form_signal: ScoreSignal;
   recent_form_signal: ScoreSignal;
   strength_prior_signal: ScoreSignal;
+  regional_context_signal: ScoreSignal;
   confidence_score: number;
   confidence_level: "low" | "medium" | "high";
   suggested_pick: string;
@@ -36,11 +37,17 @@ type TeamFormHistory = {
   competition_strength: number;
   average_opponent_strength: number;
   adjusted_points_per_match: number;
+  last_3_summary: {
+    record: { wins: number; draws: number; losses: number };
+    goals_for: number;
+    goals_against: number;
+    results: string[];
+  };
   record: { wins: number; draws: number; losses: number };
   matches: any[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v16";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v19";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -54,6 +61,23 @@ const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
 ] as const;
 
 const HOST_RECENT_FORM_TEAMS = new Set(["Canada", "Mexico", "USA", "United States"]);
+const TOURNAMENT_HOST_TEAMS = new Set(["Canada", "Mexico", "USA", "United States"]);
+const AMERICAS_TEAMS = new Set([
+  "Argentina",
+  "Brazil",
+  "Bolivia",
+  "Canada",
+  "Chile",
+  "Colombia",
+  "Costa Rica",
+  "Ecuador",
+  "Mexico",
+  "Panama",
+  "Paraguay",
+  "USA",
+  "United States",
+  "Uruguay",
+]);
 
 const TEAM_STRENGTH_PRIOR: Record<string, number> = {
   Argentina: 95,
@@ -111,9 +135,12 @@ const TEAM_STRENGTH_PRIOR: Record<string, number> = {
   "Costa Rica": 67,
   Jordan: 66,
   "Cape Verde": 66,
+  "Cape Verde Islands": 66,
   Angola: 65,
   Bulgaria: 65,
   Qatar: 64,
+  Curacao: 64,
+  Curaçao: 64,
   Oman: 63,
   Armenia: 62,
   Bolivia: 62,
@@ -229,7 +256,41 @@ function adjustedResultPoints(result: string | null, opponentStrength: number) {
   return raw * Math.max(0.72, Math.min(1.25, opponentStrength / 76));
 }
 
-function compactQualifierHistory(fixturesPayloads: any[], teamId: number, beforeIso: string): TeamFormHistory {
+function scoreForTeam(match: any, teamName: string) {
+  const home = match.teams?.home === teamName;
+  const away = match.teams?.away === teamName;
+  const homeGoals = safeNumber(match.score?.home);
+  const awayGoals = safeNumber(match.score?.away);
+  if ((!home && !away) || homeGoals === null || awayGoals === null) return null;
+  return {
+    for: home ? homeGoals : awayGoals,
+    against: home ? awayGoals : homeGoals,
+  };
+}
+
+function summarizeLastThree(matches: any[], teamName: string) {
+  const lastThree = matches.slice(0, 3);
+  const summary = lastThree.reduce((acc: TeamFormHistory["last_3_summary"], match: any) => {
+    const score = scoreForTeam(match, teamName);
+    if (match.result === "W") acc.record.wins += 1;
+    if (match.result === "D") acc.record.draws += 1;
+    if (match.result === "L") acc.record.losses += 1;
+    if (score) {
+      acc.goals_for += score.for;
+      acc.goals_against += score.against;
+      acc.results.push(`${match.result ?? "?"} ${score.for}-${score.against} vs ${match.opponent ?? "opponent"}`);
+    }
+    return acc;
+  }, {
+    record: { wins: 0, draws: 0, losses: 0 },
+    goals_for: 0,
+    goals_against: 0,
+    results: [],
+  });
+  return summary;
+}
+
+function compactQualifierHistory(fixturesPayloads: any[], teamId: number, teamName: string, beforeIso: string): TeamFormHistory {
   const beforeTime = new Date(beforeIso).getTime();
   const fixtures = fixturesPayloads.flatMap((payload) => Array.isArray(payload?.response) ? payload.response : []);
   const matches = fixtures
@@ -278,6 +339,7 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, before
     competition_strength: Number(competitionStrength.toFixed(2)),
     average_opponent_strength: Number(averageOpponentStrength.toFixed(1)),
     adjusted_points_per_match: Number(adjustedPointsPerMatch.toFixed(2)),
+    last_3_summary: summarizeLastThree(matches, teamName),
     record,
     matches,
   };
@@ -323,6 +385,7 @@ function compactHostRecentHistory(payload: any, teamId: number, teamName: string
     competition_strength: 0.92,
     average_opponent_strength: Number(averageOpponentStrength.toFixed(1)),
     adjusted_points_per_match: Number(adjustedPointsPerMatch.toFixed(2)),
+    last_3_summary: summarizeLastThree(matches, teamName),
     record,
     matches,
   };
@@ -537,6 +600,28 @@ function strengthPriorSignal(homeTeam: string, awayTeam: string) {
   };
 }
 
+function regionalTournamentBoost(teamName: string) {
+  if (TOURNAMENT_HOST_TEAMS.has(teamName)) return 4;
+  if (AMERICAS_TEAMS.has(teamName)) return 2;
+  return 0;
+}
+
+function regionalContextSignal(homeTeam: string, awayTeam: string) {
+  const homeBoost = regionalTournamentBoost(homeTeam);
+  const awayBoost = regionalTournamentBoost(awayTeam);
+  const diff = homeBoost - awayBoost;
+  if (diff === 0) {
+    if (homeBoost > 0) return { signal: "balanced" as ScoreSignal, boost_home: homeBoost, boost_away: awayBoost, reason: "Both teams get a similar regional World Cup travel/context boost." };
+    return { signal: "balanced" as ScoreSignal, boost_home: 0, boost_away: 0, reason: "No regional World Cup travel/context boost applies." };
+  }
+  return {
+    signal: diff > 0 ? "home" as ScoreSignal : "away" as ScoreSignal,
+    boost_home: homeBoost,
+    boost_away: awayBoost,
+    reason: `${diff > 0 ? homeTeam : awayTeam} gets a small World Cup regional context boost (${Math.abs(diff)} points).`,
+  };
+}
+
 function suggestedScoreFromEdge(homeTeam: string, awayTeam: string, edge: number, strengthGap: number) {
   if (edge >= 0.45 && strengthGap >= 16) return `${homeTeam} 3-0 ${awayTeam}`;
   if (edge <= -0.45 && strengthGap <= -16) return `${homeTeam} 0-3 ${awayTeam}`;
@@ -553,13 +638,15 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
   const qualifiers = qualifierFormSignal(scouting.world_cup_qualifiers?.home, scouting.world_cup_qualifiers?.away);
   const recent = recentFormSignal(scouting.teams?.home?.recent_form ?? [], scouting.teams?.away?.recent_form ?? [], match.home_team, match.away_team);
   const strength = strengthPriorSignal(match.home_team, match.away_team);
-  const strengthGap = teamStrength(match.home_team) - teamStrength(match.away_team);
+  const regional = regionalContextSignal(match.home_team, match.away_team);
+  const strengthGap = (teamStrength(match.home_team) + regional.boost_home) - (teamStrength(match.away_team) + regional.boost_away);
   const weightedSignals = [
     { ...market, weight: 0.35 },
     { ...api, weight: 0.25 },
     { ...qualifiers, weight: 0.2 },
-    { ...strength, weight: 0.15 },
+    { ...strength, weight: 0.13 },
     { ...recent, weight: 0.05 },
+    { ...regional, weight: 0.02 },
   ];
   const usable = weightedSignals.filter((item) => !["unavailable", "sparse"].includes(item.signal));
   const totalWeight = usable.reduce((sum, item) => sum + item.weight, 0);
@@ -577,11 +664,60 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
     qualifier_form_signal: qualifiers.signal,
     recent_form_signal: recent.signal,
     strength_prior_signal: strength.signal,
+    regional_context_signal: regional.signal,
     confidence_score: Number(confidence.toFixed(2)),
     confidence_level: level,
     suggested_pick: suggestedScoreFromEdge(match.home_team, match.away_team, edge, strengthGap),
     bonus_recommended: level === "high" && Math.abs(edge) >= 0.5 && String(match.stage ?? "").toLowerCase().includes("group"),
-    reasons: [market.reason, api.reason, qualifiers.reason, strength.reason, recent.reason].filter(Boolean).slice(0, 5),
+    reasons: [market.reason, api.reason, qualifiers.reason, strength.reason, regional.reason, recent.reason].filter(Boolean).slice(0, 5),
+  };
+}
+
+function teamInsightSummary(teamName: string, history: TeamFormHistory | null, fallbackForm: any[]) {
+  const source = history?.source ?? (fallbackForm.length ? "recent_form" : "unavailable");
+  const lastThree = history?.last_3_summary ?? {
+    record: { wins: 0, draws: 0, losses: 0 },
+    goals_for: 0,
+    goals_against: 0,
+    results: [],
+  };
+  return {
+    team: teamName,
+    source,
+    matches_available: history?.matches.length ?? fallbackForm.length,
+    full_record: history?.record ?? null,
+    adjusted_points_per_match: history?.adjusted_points_per_match ?? null,
+    average_opponent_strength: history?.average_opponent_strength ?? null,
+    last_3: lastThree,
+  };
+}
+
+function buildScoutingInsights(match: MatchRow, scouting: any) {
+  const home = teamInsightSummary(match.home_team, scouting.world_cup_qualifiers?.home ?? null, scouting.teams?.home?.recent_form ?? []);
+  const away = teamInsightSummary(match.away_team, scouting.world_cup_qualifiers?.away ?? null, scouting.teams?.away?.recent_form ?? []);
+  const injuries = Array.isArray(scouting.injuries) ? scouting.injuries : [];
+  return {
+    instruction: "Prioritize these concrete numbers in the user-facing insight bullets before generic strength-prior language.",
+    form_comparison: {
+      home,
+      away,
+      adjusted_points_gap_home_minus_away: home.adjusted_points_per_match != null && away.adjusted_points_per_match != null
+        ? Number((home.adjusted_points_per_match - away.adjusted_points_per_match).toFixed(2))
+        : null,
+      average_opponent_strength_gap_home_minus_away: home.average_opponent_strength != null && away.average_opponent_strength != null
+        ? Number((home.average_opponent_strength - away.average_opponent_strength).toFixed(1))
+        : null,
+    },
+    injury_watch: {
+      count: injuries.length,
+      players: injuries.slice(0, 5),
+      note: injuries.length ? "Mention key absences only if the player/team/reason is clear." : "No fixture injury list is available from API-Football yet.",
+    },
+    tournament_context: {
+      note: "World Cup 2026 is mainly hosted in USA, Canada and Mexico. This is a small regional/travel context boost, not API-Football home advantage.",
+      home: { team: match.home_team, boost: regionalTournamentBoost(match.home_team) },
+      away: { team: match.away_team, boost: regionalTournamentBoost(match.away_team) },
+    },
   };
 }
 
@@ -634,8 +770,8 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     fetchApiFootball(env, "/injuries", { fixture: match.external_id }).then(compactInjuries).catch(() => null),
     fetchApiFootball(env, "/odds", { fixture: match.external_id }).then(compactOdds).catch(() => null),
   ]);
-  let homeQualifierHistory = teams?.home ? compactQualifierHistory(qualifierPayloads, teams.home, match.kickoff_at) : null;
-  let awayQualifierHistory = teams?.away ? compactQualifierHistory(qualifierPayloads, teams.away, match.kickoff_at) : null;
+  let homeQualifierHistory = teams?.home ? compactQualifierHistory(qualifierPayloads, teams.home, match.home_team, match.kickoff_at) : null;
+  let awayQualifierHistory = teams?.away ? compactQualifierHistory(qualifierPayloads, teams.away, match.away_team, match.kickoff_at) : null;
   if (homeQualifierHistory && homeQualifierHistory.matches.length === 0 && HOST_RECENT_FORM_TEAMS.has(match.home_team)) {
     homeQualifierHistory = await fetchHostRecentHistory(env, teams?.home ?? null, match.home_team, match.kickoff_at).catch(() => homeQualifierHistory);
   }
@@ -676,10 +812,10 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     head_to_head: h2h ?? [],
     injuries: injuries ?? [],
     baseline_strength_prior: {
-      note: "Oddzz heuristic fallback used only when API-Football data is sparse. Higher means stronger expected team quality; it is not an official FIFA ranking.",
-      home: { team: match.home_team, strength: teamStrength(match.home_team) },
-      away: { team: match.away_team, strength: teamStrength(match.away_team) },
-      strength_gap_home_minus_away: teamStrength(match.home_team) - teamStrength(match.away_team),
+      note: "Oddzz heuristic fallback used when provider data is limited. Higher means stronger expected team quality; it is not an official FIFA ranking. Regional context is a small World Cup 2026 travel/host boost, not home advantage.",
+      home: { team: match.home_team, strength: teamStrength(match.home_team), regional_boost: regionalTournamentBoost(match.home_team) },
+      away: { team: match.away_team, strength: teamStrength(match.away_team), regional_boost: regionalTournamentBoost(match.away_team) },
+      strength_gap_home_minus_away: (teamStrength(match.home_team) + regionalTournamentBoost(match.home_team)) - (teamStrength(match.away_team) + regionalTournamentBoost(match.away_team)),
       suggested_score_hint: baselineScoreHint(match.home_team, match.away_team),
     },
     teams: {
@@ -687,7 +823,7 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
       away: { id: teams?.away ?? null, name: match.away_team, stats: awayStats, recent_form: awayForm ?? [], world_cup_qualifiers: awayQualifierHistory, standing: awayStanding },
     },
   };
-  return { ...scouting, oddzz_scorecard: buildScorecard(match, scouting) };
+  return { ...scouting, scouting_insights: buildScoutingInsights(match, scouting), oddzz_scorecard: buildScorecard(match, scouting) };
 }
 
 function fallbackInsight(match: MatchRow, statsSource: string, scorecard?: Scorecard): InsightPayload {
@@ -747,15 +883,20 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
           content: [
             "You are Oddzz AI, a friendly World Cup prediction assistant for entertainment only.",
             "Use ONLY the match and stats JSON provided by the user. Do not invent team history, host status, recent form, injuries, rankings, or previous results.",
+            "World Cup fixtures are neutral-tournament fixtures unless the stats explicitly say otherwise. The JSON fields home and away are fixture labels only; never infer home advantage, home-team win, or home crowd advantage from them.",
+            "You may mention tournament_context when present: USA, Canada and Mexico get a small host/travel context edge, and North/South American teams may get a smaller regional travel/context edge. Describe this as regional context, never as home advantage unless the team is actually a host playing in its host country.",
             "The stats JSON contains oddzz_scorecard. Treat this scorecard as the primary recommendation produced by Oddzz's deterministic engine. Explain it clearly; do not override its suggested_pick unless the provided raw datasets strongly contradict it.",
+            "The stats JSON also contains scouting_insights. Use scouting_insights as the main source for user-facing bullets: last 3 results, goals scored, goals conceded, adjusted points per match, average opponent strength, and injury watch.",
+            "The angles array should be concrete and numerical where possible. Prefer bullets like 'Portugal last 3 qualifiers: W-W-D, 7 scored, 2 conceded, avg opponent strength 71.3' over generic statements like 'Portugal is stronger'.",
+            "When injuries are available, mention key absences by player/team/reason. If injury data is unavailable, say 'No fixture injury list available yet' only if useful; do not overstate it.",
             "Consider the available datasets in this order: market_odds, provider_prediction, world_cup_qualifiers, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
             "World Cup qualifier history is an important national-team signal. Oddzz adjusts this signal by confederation strength, so continents are not treated as perfectly equal.",
             "For 2026 host teams without qualifiers, Oddzz may provide host_recent_all_competitions from their latest 10 completed matches including friendlies. Treat it as useful but weaker than true qualifier data.",
-            "If market_odds exists, treat bookmaker odds as a useful market signal, not certainty. Use it especially to break ties when football stats are sparse.",
-            "When provider_prediction and live statistics are missing or sparse, use baseline_strength_prior as a heuristic fallback so stronger teams are not treated as automatic 1-1 draws.",
+            "If market_odds exists, treat bookmaker odds as a useful market signal, not certainty. Use it especially to break ties when football stats are limited.",
+            "When provider_prediction and live statistics are missing or limited, use baseline_strength_prior as a heuristic fallback so stronger teams are not treated as automatic 1-1 draws.",
             "If the strength gap is 6+ points, avoid defaulting to a draw unless other provided data clearly supports it.",
             "If API-Football's provider_prediction exists, treat it as one useful signal, not as guaranteed truth.",
-            "If team stats are null or sparse, say clearly that there is not enough statistical data yet and keep confidence low.",
+            "Use precise wording about data availability: if qualifier or recent-form matches are present, do not call all data sparse. Instead say market odds, provider predictions, live stats, injuries, or World Cup 2026 team statistics are missing if those specific datasets are absent.",
             "The suggested_pick must be an exact scoreline in the format 'Team A 1-1 Team B', not just a winner.",
             "Prefer oddzz_scorecard.suggested_pick for suggested_pick. Bonus recommendation should normally follow oddzz_scorecard.bonus_recommended.",
             "Also recommend whether OddzzAI should use one of its two x5 bonuses. It can only use bonuses on group-stage matches, and only when confidence is high enough to justify the risk.",
