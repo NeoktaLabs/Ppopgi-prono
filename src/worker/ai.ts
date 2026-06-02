@@ -53,12 +53,13 @@ type TeamFormHistory = {
   };
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v27";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v28";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
 type StatsSnapshotOptions = {
   allowProviderFetch: boolean;
+  bypassCache?: boolean;
 };
 type HydrateBatchOptions = {
   teamOffset: number;
@@ -1468,7 +1469,7 @@ async function hydrateAiFootballDataBatch(env: Env, options: HydrateBatchOptions
   let historicalDetailRequests = 0;
   const historicalFixtureIds = new Set<number>();
   for (const teamId of selectedTeamIds) {
-    const qualifierPayloads = await fetchTeamWorldCupQualifierPayloads(env, teamId, { allowProviderFetch: true });
+    const qualifierPayloads = await fetchTeamWorldCupQualifierPayloads(env, teamId, { allowProviderFetch: true, bypassCache: true });
     for (const fixtureId of completedFixtureIdsFromPayloads(qualifierPayloads)) historicalFixtureIds.add(fixtureId);
     qualifierRequests += WORLD_CUP_2026_QUALIFIER_COMPETITIONS.length;
     const recentPayload = await fetchApiFootball(env, "/fixtures", { team: teamId, last: 10 }, { bypassCache: true }).catch(() => null);
