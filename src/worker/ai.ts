@@ -34,12 +34,13 @@ type TeamFormHistory = {
   competitions: ReadonlyArray<unknown>;
   source: string;
   competition_strength: number;
+  average_opponent_strength: number;
   adjusted_points_per_match: number;
   record: { wins: number; draws: number; losses: number };
   matches: any[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-01-scorecard-v14";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v16";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -82,25 +83,47 @@ const TEAM_STRENGTH_PRIOR: Record<string, number> = {
   Austria: 77,
   Poland: 76,
   Ecuador: 76,
+  Hungary: 76,
+  Turkey: 76,
+  Cameroon: 75,
+  Iran: 75,
   Australia: 74,
   "South Korea": 74,
   Canada: 73,
   Panama: 73,
   Norway: 73,
   Chile: 72,
+  "Republic of Ireland": 72,
+  Ireland: 72,
   Wales: 72,
+  Georgia: 70,
   Tunisia: 70,
   Nigeria: 70,
   Paraguay: 70,
   Scotland: 70,
+  Uzbekistan: 69,
   Ghana: 69,
+  "United Arab Emirates": 68,
+  UAE: 68,
   "South Africa": 68,
   "Saudi Arabia": 67,
   "Bosnia & Herzegovina": 67,
   "Costa Rica": 67,
+  Jordan: 66,
   "Cape Verde": 66,
+  Angola: 65,
+  Bulgaria: 65,
   Qatar: 64,
-  Iran: 64,
+  Oman: 63,
+  Armenia: 62,
+  Bolivia: 62,
+  Libya: 62,
+  Palestine: 60,
+  Kuwait: 58,
+  Kyrgyzstan: 55,
+  "North Korea": 55,
+  Mauritius: 50,
+  Eswatini: 49,
 };
 
 class AiProviderError extends Error {
@@ -239,6 +262,9 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, before
   const competitionStrength = matches.length
     ? matches.reduce((sum: number, fixture: any) => sum + (safeNumber(fixture.competition_strength) ?? 1), 0) / matches.length
     : 1;
+  const averageOpponentStrength = matches.length
+    ? matches.reduce((sum: number, fixture: any) => sum + (safeNumber(fixture.opponent_strength) ?? 72), 0) / matches.length
+    : 72;
   const adjustedPointsPerMatch = matches.length
     ? matches.reduce((sum: number, fixture: any) => (
       sum + adjustedResultPoints(fixture.result, safeNumber(fixture.opponent_strength) ?? 72) * (safeNumber(fixture.competition_strength) ?? 1)
@@ -250,6 +276,7 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, before
     competitions: WORLD_CUP_2026_QUALIFIER_COMPETITIONS,
     source: "world_cup_qualifiers",
     competition_strength: Number(competitionStrength.toFixed(2)),
+    average_opponent_strength: Number(averageOpponentStrength.toFixed(1)),
     adjusted_points_per_match: Number(adjustedPointsPerMatch.toFixed(2)),
     record,
     matches,
@@ -285,12 +312,16 @@ function compactHostRecentHistory(payload: any, teamId: number, teamName: string
       sum + adjustedResultPoints(fixture.result, safeNumber(fixture.opponent_strength) ?? 72) * (safeNumber(fixture.competition_strength) ?? 1)
     ), 0) / matches.length
     : 0;
+  const averageOpponentStrength = matches.length
+    ? matches.reduce((sum: number, fixture: any) => sum + (safeNumber(fixture.opponent_strength) ?? 72), 0) / matches.length
+    : 72;
 
   return {
     note: `${teamName} is a 2026 host, so no normal World Cup qualifier record is available. OddzzAI uses the latest 10 completed matches across all competitions and friendlies instead.`,
     competitions: [],
     source: "host_recent_all_competitions",
     competition_strength: 0.92,
+    average_opponent_strength: Number(averageOpponentStrength.toFixed(1)),
     adjusted_points_per_match: Number(adjustedPointsPerMatch.toFixed(2)),
     record,
     matches,
@@ -459,15 +490,17 @@ function qualifierFormSignal(homeHistory: any, awayHistory: any) {
   const awayRecord = awayHistory.record ?? {};
   const homeStrength = safeNumber(homeHistory.competition_strength) ?? 1;
   const awayStrength = safeNumber(awayHistory.competition_strength) ?? 1;
+  const homeOpponentStrength = safeNumber(homeHistory.average_opponent_strength) ?? 72;
+  const awayOpponentStrength = safeNumber(awayHistory.average_opponent_strength) ?? 72;
   const homePpg = safeNumber(homeHistory.adjusted_points_per_match)
     ?? ((((homeRecord.wins ?? 0) * 3 + (homeRecord.draws ?? 0)) / homeMatches) * homeStrength);
   const awayPpg = safeNumber(awayHistory.adjusted_points_per_match)
     ?? ((((awayRecord.wins ?? 0) * 3 + (awayRecord.draws ?? 0)) / awayMatches) * awayStrength);
   const diff = homePpg - awayPpg;
-  if (Math.abs(diff) < 0.35) return { signal: "balanced" as ScoreSignal, reason: `Adjusted qualifier/form signal is close (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match).` };
+  if (Math.abs(diff) < 0.28) return { signal: "balanced" as ScoreSignal, reason: `Adjusted qualifier/form signal is close (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match), after opponent quality (${homeOpponentStrength.toFixed(1)} vs ${awayOpponentStrength.toFixed(1)} avg strength).` };
   return {
     signal: diff > 0 ? "home" as ScoreSignal : "away" as ScoreSignal,
-    reason: `Adjusted qualifier/form signal favors ${diff > 0 ? "home" : "away"} (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match).`,
+    reason: `Adjusted qualifier/form signal favors ${diff > 0 ? "home" : "away"} (${homePpg.toFixed(2)} vs ${awayPpg.toFixed(2)} pts/match), including opponent quality (${homeOpponentStrength.toFixed(1)} vs ${awayOpponentStrength.toFixed(1)} avg strength).`,
   };
 }
 
@@ -504,7 +537,9 @@ function strengthPriorSignal(homeTeam: string, awayTeam: string) {
   };
 }
 
-function suggestedScoreFromEdge(homeTeam: string, awayTeam: string, edge: number) {
+function suggestedScoreFromEdge(homeTeam: string, awayTeam: string, edge: number, strengthGap: number) {
+  if (edge >= 0.45 && strengthGap >= 16) return `${homeTeam} 3-0 ${awayTeam}`;
+  if (edge <= -0.45 && strengthGap <= -16) return `${homeTeam} 0-3 ${awayTeam}`;
   if (edge >= 0.55) return `${homeTeam} 2-0 ${awayTeam}`;
   if (edge >= 0.2) return `${homeTeam} 2-1 ${awayTeam}`;
   if (edge <= -0.55) return `${homeTeam} 0-2 ${awayTeam}`;
@@ -518,6 +553,7 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
   const qualifiers = qualifierFormSignal(scouting.world_cup_qualifiers?.home, scouting.world_cup_qualifiers?.away);
   const recent = recentFormSignal(scouting.teams?.home?.recent_form ?? [], scouting.teams?.away?.recent_form ?? [], match.home_team, match.away_team);
   const strength = strengthPriorSignal(match.home_team, match.away_team);
+  const strengthGap = teamStrength(match.home_team) - teamStrength(match.away_team);
   const weightedSignals = [
     { ...market, weight: 0.35 },
     { ...api, weight: 0.25 },
@@ -529,7 +565,11 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
   const totalWeight = usable.reduce((sum, item) => sum + item.weight, 0);
   const edge = totalWeight ? usable.reduce((sum, item) => sum + signalValue(item.signal) * item.weight, 0) / totalWeight : 0;
   const agreement = usable.length ? usable.filter((item) => Math.sign(signalValue(item.signal)) === Math.sign(edge) || signalValue(item.signal) === 0).length / usable.length : 0;
-  const confidence = Math.max(0.12, Math.min(0.95, totalWeight * (0.55 + agreement * 0.45) * Math.min(1, Math.abs(edge) + 0.35)));
+  const baseConfidence = totalWeight * (0.55 + agreement * 0.45) * Math.min(1, Math.abs(edge) + 0.35);
+  const structuralConfidence = Math.abs(strengthGap) >= 22 ? 0.58 : Math.abs(strengthGap) >= 16 ? 0.5 : Math.abs(strengthGap) >= 10 ? 0.42 : 0.12;
+  const marketOrApiAvailable = !["unavailable", "sparse"].includes(market.signal) || !["unavailable", "sparse"].includes(api.signal);
+  const confidenceCap = marketOrApiAvailable ? 0.95 : 0.68;
+  const confidence = Math.max(0.12, Math.min(confidenceCap, Math.max(baseConfidence, structuralConfidence)));
   const level = confidenceLevel(confidence);
   return {
     market_signal: market.signal,
@@ -539,7 +579,7 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
     strength_prior_signal: strength.signal,
     confidence_score: Number(confidence.toFixed(2)),
     confidence_level: level,
-    suggested_pick: suggestedScoreFromEdge(match.home_team, match.away_team, edge),
+    suggested_pick: suggestedScoreFromEdge(match.home_team, match.away_team, edge, strengthGap),
     bonus_recommended: level === "high" && Math.abs(edge) >= 0.5 && String(match.stage ?? "").toLowerCase().includes("group"),
     reasons: [market.reason, api.reason, qualifiers.reason, strength.reason, recent.reason].filter(Boolean).slice(0, 5),
   };
