@@ -33,7 +33,15 @@ import {
 } from "./global-admin";
 import { leagueHome } from "./live";
 import { scheduledSync, syncWorldCupMatches } from "./sync";
-import { debugAiFixtureData, fixtureAiInsight, hydrateAiFootballData, scheduledAiInsightRefresh } from "./ai";
+import {
+  debugAiFixtureData,
+  fixtureAiInsight,
+  getAiFootballRefreshJob,
+  hydrateAiFootballData,
+  processAiFootballRefreshQueue,
+  scheduledAiInsightRefresh,
+  startAiFootballRefreshJob,
+} from "./ai";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -102,6 +110,20 @@ async function handleApi(request: Request, env: Env) {
     return hydrateAiFootballData(request, env);
   }
 
+  if (pathname === "/api/admin/ai/refresh") {
+    const admin = await requireGlobalAdmin(request, env);
+    if (admin.error) return admin.error;
+    if (request.method === "POST") return startAiFootballRefreshJob(request, env, admin.user?.id ?? null);
+    if (request.method === "GET") return getAiFootballRefreshJob(env);
+  }
+
+  const aiRefreshJobParams = routeParams(pathname, /^\/api\/admin\/ai\/refresh\/([^/]+)$/);
+  if (request.method === "GET" && aiRefreshJobParams) {
+    const admin = await requireGlobalAdmin(request, env);
+    if (admin.error) return admin.error;
+    return getAiFootballRefreshJob(env, aiRefreshJobParams[0]);
+  }
+
   const removeMemberParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/members\/([^/]+)$/);
   if (request.method === "DELETE" && removeMemberParams) return removeLeagueMember(request, env, removeMemberParams[0], removeMemberParams[1]);
 
@@ -159,6 +181,9 @@ export default {
     if (event.cron === "0 */6 * * *") {
       ctx.waitUntil(scheduledAiInsightRefresh(env));
       return;
+    }
+    if (event.cron === "*/1 * * * *") {
+      ctx.waitUntil(processAiFootballRefreshQueue(env));
     }
     ctx.waitUntil(scheduledSync(env));
   },

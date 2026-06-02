@@ -57,6 +57,16 @@ const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v26";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
+type StatsSnapshotOptions = {
+  allowProviderFetch: boolean;
+};
+type HydrateBatchOptions = {
+  teamOffset: number;
+  teamLimit: number;
+  fixtureOffset: number;
+  fixtureLimit: number;
+  historicalDetailLimit: number;
+};
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
   { league: 29, season: 2023, name: "World Cup - Qualification Africa", confederation: "CAF", strength: 0.98 },
@@ -331,6 +341,16 @@ async function fetchApiFootball<T = any>(
   const payload = await fetchApiFootballFromProvider<T>(env, path, cleanParams);
   if (payload) await persistApiFootballDataset(env, cacheKey, path, cleanParams, payload, ttlSeconds);
   return payload;
+}
+
+async function getApiFootball<T = any>(
+  env: Env,
+  path: string,
+  params: Record<string, string | number | null | undefined>,
+  options: StatsSnapshotOptions & { ttlSeconds?: number; bypassCache?: boolean },
+) {
+  if (options.allowProviderFetch) return fetchApiFootball<T>(env, path, params, options);
+  return readApiFootballDataset<T>(env, path, params);
 }
 
 async function readApiFootballDataset<T = any>(env: Env, path: string, params: Record<string, string | number | null | undefined>) {
@@ -1039,8 +1059,8 @@ async function cachedHistoricalDetailsForHistory(env: Env, history: TeamFormHist
   return details.filter((detail) => detail.datasets.statistics || detail.datasets.events || detail.datasets.lineups);
 }
 
-async function fetchFixtureTeams(env: Env, externalId: string) {
-  const payload = await fetchApiFootball<{ response?: any[] }>(env, "/fixtures", { id: externalId });
+async function fetchFixtureTeams(env: Env, externalId: string, options: StatsSnapshotOptions) {
+  const payload = await getApiFootball<{ response?: any[] }>(env, "/fixtures", { id: externalId }, options);
   const fixture = payload?.response?.[0];
   return fixture?.teams ? {
     home: safeNumber(fixture.teams.home?.id),
@@ -1048,22 +1068,22 @@ async function fetchFixtureTeams(env: Env, externalId: string) {
   } : null;
 }
 
-async function fetchTeamStats(env: Env, teamId: number | null) {
-  if (!env.FOOTBALL_API_KEY || !teamId) return null;
+async function fetchTeamStats(env: Env, teamId: number | null, options: StatsSnapshotOptions) {
+  if (!teamId) return null;
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
-  return compactTeamStats(await fetchApiFootball(env, "/teams/statistics", { league, season, team: teamId }));
+  return compactTeamStats(await getApiFootball(env, "/teams/statistics", { league, season, team: teamId }, options));
 }
 
-async function fetchTeamWorldCupQualifierPayloads(env: Env, teamId: number | null) {
+async function fetchTeamWorldCupQualifierPayloads(env: Env, teamId: number | null, options: StatsSnapshotOptions) {
   if (!teamId) return [];
   return Promise.all(WORLD_CUP_2026_QUALIFIER_COMPETITIONS.map((competition) => (
-    env.FOOTBALL_API_KEY
-      ? fetchApiFootball(env, "/fixtures", {
+    options.allowProviderFetch
+      ? getApiFootball(env, "/fixtures", {
         league: competition.league,
         season: competition.season,
         team: teamId,
-      })
+      }, options)
         .then((payload) => payload ?? readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season))
         .catch(() => readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season))
       : readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season)
@@ -1099,18 +1119,18 @@ function qualifierEndpointSummary(payloads: any[]) {
   });
 }
 
-async function fetchHostRecentHistory(env: Env, teamId: number | null, teamName: string, beforeIso: string) {
-  if (!env.FOOTBALL_API_KEY || !teamId || !HOST_RECENT_FORM_TEAMS.has(teamName)) return null;
-  const hostPayload = await fetchApiFootball(env, "/fixtures", { team: teamId, last: 10 }).catch(() => null);
+async function fetchHostRecentHistory(env: Env, teamId: number | null, teamName: string, beforeIso: string, options: StatsSnapshotOptions) {
+  if (!teamId || !HOST_RECENT_FORM_TEAMS.has(teamName)) return null;
+  const hostPayload = await getApiFootball(env, "/fixtures", { team: teamId, last: 10 }, options).catch(() => null);
   return compactHostRecentHistory(hostPayload, teamId, teamName, beforeIso);
 }
 
-async function buildStatsSnapshot(env: Env, match: MatchRow) {
+async function buildStatsSnapshot(env: Env, match: MatchRow, options: StatsSnapshotOptions = { allowProviderFetch: false }) {
   const storedTeams = {
     home: safeNumber(match.home_team_api_id),
     away: safeNumber(match.away_team_api_id),
   };
-  const fetchedTeams = storedTeams.home && storedTeams.away ? null : await fetchFixtureTeams(env, match.external_id).catch(() => null);
+  const fetchedTeams = storedTeams.home && storedTeams.away ? null : await fetchFixtureTeams(env, match.external_id, options).catch(() => null);
   const teams = {
     home: storedTeams.home ?? fetchedTeams?.home ?? null,
     away: storedTeams.away ?? fetchedTeams?.away ?? null,
@@ -1118,26 +1138,26 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
   const [homeStats, awayStats, homeForm, awayForm, homeQualifierPayloads, awayQualifierPayloads, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
-    fetchTeamStats(env, teams?.home ?? null).catch(() => null),
-    fetchTeamStats(env, teams?.away ?? null).catch(() => null),
-    teams?.home ? fetchApiFootball(env, "/fixtures", { team: teams.home, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map((fixture: any) => compactFixtureForTeam(fixture, teams.home!)) ?? null).catch(() => null) : null,
-    teams?.away ? fetchApiFootball(env, "/fixtures", { team: teams.away, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map((fixture: any) => compactFixtureForTeam(fixture, teams.away!)) ?? null).catch(() => null) : null,
-    fetchTeamWorldCupQualifierPayloads(env, teams?.home ?? null).catch(() => []),
-    fetchTeamWorldCupQualifierPayloads(env, teams?.away ?? null).catch(() => []),
-    teams?.home ? fetchApiFootball(env, "/standings", { league, season, team: teams.home }).then(compactStanding).catch(() => null) : null,
-    teams?.away ? fetchApiFootball(env, "/standings", { league, season, team: teams.away }).then(compactStanding).catch(() => null) : null,
-    teams?.home && teams?.away ? fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${teams.home}-${teams.away}`, last: 10 }).then((payload: any) => payload?.response?.slice(0, 10).map(compactFixture) ?? null).catch(() => null) : null,
-    fetchApiFootball(env, "/predictions", { fixture: match.external_id }).then(compactPrediction).catch(() => null),
-    fetchApiFootball(env, "/injuries", { fixture: match.external_id }).then(compactInjuries).catch(() => null),
-    fetchApiFootball(env, "/odds", { fixture: match.external_id }).then(compactOdds).catch(() => null),
+    fetchTeamStats(env, teams?.home ?? null, options).catch(() => null),
+    fetchTeamStats(env, teams?.away ?? null, options).catch(() => null),
+    teams?.home ? getApiFootball(env, "/fixtures", { team: teams.home, last: 5 }, options).then((payload: any) => payload?.response?.slice(0, 5).map((fixture: any) => compactFixtureForTeam(fixture, teams.home!)) ?? null).catch(() => null) : null,
+    teams?.away ? getApiFootball(env, "/fixtures", { team: teams.away, last: 5 }, options).then((payload: any) => payload?.response?.slice(0, 5).map((fixture: any) => compactFixtureForTeam(fixture, teams.away!)) ?? null).catch(() => null) : null,
+    fetchTeamWorldCupQualifierPayloads(env, teams?.home ?? null, options).catch(() => []),
+    fetchTeamWorldCupQualifierPayloads(env, teams?.away ?? null, options).catch(() => []),
+    teams?.home ? getApiFootball(env, "/standings", { league, season, team: teams.home }, options).then(compactStanding).catch(() => null) : null,
+    teams?.away ? getApiFootball(env, "/standings", { league, season, team: teams.away }, options).then(compactStanding).catch(() => null) : null,
+    teams?.home && teams?.away ? getApiFootball(env, "/fixtures/headtohead", { h2h: `${teams.home}-${teams.away}`, last: 10 }, options).then((payload: any) => payload?.response?.slice(0, 10).map(compactFixture) ?? null).catch(() => null) : null,
+    getApiFootball(env, "/predictions", { fixture: match.external_id }, options).then(compactPrediction).catch(() => null),
+    getApiFootball(env, "/injuries", { fixture: match.external_id }, options).then(compactInjuries).catch(() => null),
+    getApiFootball(env, "/odds", { fixture: match.external_id }, options).then(compactOdds).catch(() => null),
   ]);
   let homeQualifierHistory = teams?.home ? compactQualifierHistory(homeQualifierPayloads, teams.home, match.home_team, match.kickoff_at) : null;
   let awayQualifierHistory = teams?.away ? compactQualifierHistory(awayQualifierPayloads, teams.away, match.away_team, match.kickoff_at) : null;
   if (homeQualifierHistory && homeQualifierHistory.matches.length === 0 && HOST_RECENT_FORM_TEAMS.has(match.home_team)) {
-    homeQualifierHistory = await fetchHostRecentHistory(env, teams?.home ?? null, match.home_team, match.kickoff_at).catch(() => homeQualifierHistory);
+    homeQualifierHistory = await fetchHostRecentHistory(env, teams?.home ?? null, match.home_team, match.kickoff_at, options).catch(() => homeQualifierHistory);
   }
   if (awayQualifierHistory && awayQualifierHistory.matches.length === 0 && HOST_RECENT_FORM_TEAMS.has(match.away_team)) {
-    awayQualifierHistory = await fetchHostRecentHistory(env, teams?.away ?? null, match.away_team, match.kickoff_at).catch(() => awayQualifierHistory);
+    awayQualifierHistory = await fetchHostRecentHistory(env, teams?.away ?? null, match.away_team, match.kickoff_at, options).catch(() => awayQualifierHistory);
   }
   const [homeHistoricalDetails, awayHistoricalDetails] = await Promise.all([
     cachedHistoricalDetailsForHistory(env, homeQualifierHistory).catch(() => []),
@@ -1362,7 +1382,7 @@ async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: Insi
   if (new Date(match.kickoff_at).getTime() <= Date.now()) {
     return badRequest("OddzzAI predictions are only generated before kickoff.", 409);
   }
-  return cachedOrGenerateInsightFromStats(env, match, language, await buildStatsSnapshot(env, match));
+  return cachedOrGenerateInsightFromStats(env, match, language, await buildStatsSnapshot(env, match, { allowProviderFetch: false }));
 }
 
 export async function scheduledAiInsightRefresh(env: Env) {
@@ -1378,7 +1398,7 @@ export async function scheduledAiInsightRefresh(env: Env) {
   `).bind(now.toISOString(), oddsWindowEnd.toISOString()).all<MatchRow>();
 
   for (const match of rows.results ?? []) {
-    const stats = await buildStatsSnapshot(env, match).catch(() => null);
+    const stats = await buildStatsSnapshot(env, match, { allowProviderFetch: true }).catch(() => null);
     if (!stats) continue;
     await cachedOrGenerateInsightFromStats(env, match, "en", stats).catch(() => null);
     await cachedOrGenerateInsightFromStats(env, match, "fr", stats).catch(() => null);
@@ -1412,13 +1432,12 @@ async function hydratePastFixtureDetails(env: Env, fixtureIds: number[]) {
   return attempted;
 }
 
-export async function hydrateAiFootballData(request: Request, env: Env) {
+async function hydrateAiFootballDataBatch(env: Env, options: HydrateBatchOptions) {
   if (!env.FOOTBALL_API_KEY) return badRequest("FOOTBALL_API_KEY is not configured.", 503);
-  const url = new URL(request.url);
-  const teamOffset = Math.max(0, Number(url.searchParams.get("teamOffset") ?? 0) || 0);
-  const teamLimit = Math.min(12, Math.max(1, Number(url.searchParams.get("teamLimit") ?? 3) || 3));
-  const fixtureOffset = Math.max(0, Number(url.searchParams.get("fixtureOffset") ?? 0) || 0);
-  const fixtureLimit = Math.min(20, Math.max(1, Number(url.searchParams.get("fixtureLimit") ?? 5) || 5));
+  const teamOffset = options.teamOffset;
+  const teamLimit = options.teamLimit;
+  const fixtureOffset = options.fixtureOffset;
+  const fixtureLimit = options.fixtureLimit;
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
   const worldCupPayload = await fetchApiFootball(env, "/fixtures", { league, season }, { bypassCache: true }).catch(() => null) as { response?: any[] } | null;
@@ -1437,7 +1456,7 @@ export async function hydrateAiFootballData(request: Request, env: Env) {
   let historicalDetailRequests = 0;
   const historicalFixtureIds = new Set<number>();
   for (const teamId of selectedTeamIds) {
-    const qualifierPayloads = await fetchTeamWorldCupQualifierPayloads(env, teamId);
+    const qualifierPayloads = await fetchTeamWorldCupQualifierPayloads(env, teamId, { allowProviderFetch: true });
     for (const fixtureId of completedFixtureIdsFromPayloads(qualifierPayloads)) historicalFixtureIds.add(fixtureId);
     qualifierRequests += WORLD_CUP_2026_QUALIFIER_COMPETITIONS.length;
     const recentPayload = await fetchApiFootball(env, "/fixtures", { team: teamId, last: 10 }, { bypassCache: true }).catch(() => null);
@@ -1448,19 +1467,28 @@ export async function hydrateAiFootballData(request: Request, env: Env) {
     await fetchApiFootball(env, "/standings", { league, season, team: teamId }, { bypassCache: true }).catch(() => null);
     standingsRequests += 1;
   }
-  historicalDetailRequests += await hydratePastFixtureDetails(env, [...historicalFixtureIds].slice(0, 30));
+  historicalDetailRequests += await hydratePastFixtureDetails(env, [...historicalFixtureIds].slice(0, options.historicalDetailLimit));
 
   let fixtureScoutingRequests = 0;
   for (const fixture of selectedFixtures) {
+    const fixtureId = safeNumber(fixture?.fixture?.id);
     const homeId = safeNumber(fixture?.teams?.home?.id);
     const awayId = safeNumber(fixture?.teams?.away?.id);
+    const kickoffTime = new Date(fixture?.fixture?.date ?? 0).getTime();
+    const isFutureFixture = fixtureId && kickoffTime > Date.now();
+    if (isFutureFixture) {
+      await fetchApiFootball(env, "/predictions", { fixture: fixtureId }, { bypassCache: true }).catch(() => null);
+      await fetchApiFootball(env, "/injuries", { fixture: fixtureId }, { bypassCache: true }).catch(() => null);
+      await fetchApiFootball(env, "/odds", { fixture: fixtureId }, { bypassCache: true }).catch(() => null);
+      fixtureScoutingRequests += 3;
+    }
     if (homeId && awayId) {
       await fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${homeId}-${awayId}`, last: 10 }, { bypassCache: true }).catch(() => null);
       fixtureScoutingRequests += 1;
     }
   }
 
-  return json({
+  return {
     ok: true,
     world_cup_fixtures: rows.length,
     teams: teamIds.length,
@@ -1485,7 +1513,139 @@ export async function hydrateAiFootballData(request: Request, env: Env) {
       historical_fixture_details: historicalDetailRequests,
       fixture_scouting: fixtureScoutingRequests,
     },
+  };
+}
+
+export async function hydrateAiFootballData(request: Request, env: Env) {
+  const url = new URL(request.url);
+  const result = await hydrateAiFootballDataBatch(env, {
+    teamOffset: Math.max(0, Number(url.searchParams.get("teamOffset") ?? 0) || 0),
+    teamLimit: Math.min(12, Math.max(1, Number(url.searchParams.get("teamLimit") ?? 3) || 3)),
+    fixtureOffset: Math.max(0, Number(url.searchParams.get("fixtureOffset") ?? 0) || 0),
+    fixtureLimit: Math.min(20, Math.max(1, Number(url.searchParams.get("fixtureLimit") ?? 5) || 5)),
+    historicalDetailLimit: Math.min(30, Math.max(0, Number(url.searchParams.get("historicalDetailLimit") ?? 30) || 30)),
   });
+  return result instanceof Response ? result : json(result);
+}
+
+export async function startAiFootballRefreshJob(request: Request, env: Env, startedByUserId: string | null = null) {
+  const active = await env.DB.prepare(`
+    SELECT * FROM ai_refresh_jobs
+    WHERE status IN ('queued', 'running')
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).first<any>().catch(() => null);
+  if (active) {
+    return json({ ok: true, job: active, message: "An OddzzAI refresh job is already running." });
+  }
+
+  const body = await request.json().catch(() => ({})) as Partial<{
+    teamLimit: number;
+    fixtureLimit: number;
+    historicalDetailLimit: number;
+  }>;
+  const now = nowIso();
+  const job = {
+    id: crypto.randomUUID(),
+    teamLimit: Math.min(3, Math.max(1, Number(body.teamLimit ?? 1) || 1)),
+    fixtureLimit: Math.min(5, Math.max(1, Number(body.fixtureLimit ?? 2) || 2)),
+    historicalDetailLimit: Math.min(10, Math.max(0, Number(body.historicalDetailLimit ?? 5) || 5)),
+  };
+  await env.DB.prepare(`
+    INSERT INTO ai_refresh_jobs (
+      id, status, team_offset, fixture_offset, team_limit, fixture_limit, historical_detail_limit,
+      started_by_user_id, created_at, updated_at
+    )
+    VALUES (?, 'queued', 0, 0, ?, ?, ?, ?, ?, ?)
+  `).bind(job.id, job.teamLimit, job.fixtureLimit, job.historicalDetailLimit, startedByUserId, now, now).run();
+
+  return json({
+    ok: true,
+    job_id: job.id,
+    message: "OddzzAI D1 refresh queued. The one-minute cron will process one safe batch per minute.",
+    batch_limits: {
+      team_limit: job.teamLimit,
+      fixture_limit: job.fixtureLimit,
+      historical_detail_limit: job.historicalDetailLimit,
+    },
+  });
+}
+
+export async function getAiFootballRefreshJob(env: Env, jobId?: string | null) {
+  const row = jobId
+    ? await env.DB.prepare("SELECT * FROM ai_refresh_jobs WHERE id = ?").bind(jobId).first<any>()
+    : await env.DB.prepare("SELECT * FROM ai_refresh_jobs ORDER BY created_at DESC LIMIT 1").first<any>();
+  if (!row) return badRequest("OddzzAI refresh job not found.", 404);
+  return json({ ok: true, job: row });
+}
+
+export async function processAiFootballRefreshQueue(env: Env) {
+  const job = await env.DB.prepare(`
+    SELECT * FROM ai_refresh_jobs
+    WHERE status IN ('queued', 'running')
+      AND (last_run_at IS NULL OR last_run_at <= ?)
+    ORDER BY created_at ASC
+    LIMIT 1
+  `).bind(new Date(Date.now() - 55_000).toISOString()).first<any>().catch(() => null);
+  if (!job) return;
+
+  const now = nowIso();
+  await env.DB.prepare(`
+    UPDATE ai_refresh_jobs
+    SET status = 'running', last_run_at = ?, updated_at = ?
+    WHERE id = ?
+  `).bind(now, now, job.id).run();
+
+  try {
+    const result = await hydrateAiFootballDataBatch(env, {
+      teamOffset: Number(job.team_offset ?? 0),
+      teamLimit: Number(job.team_limit ?? 1),
+      fixtureOffset: Number(job.fixture_offset ?? 0),
+      fixtureLimit: Number(job.fixture_limit ?? 2),
+      historicalDetailLimit: Number(job.historical_detail_limit ?? 5),
+    });
+    if (result instanceof Response) {
+      await env.DB.prepare(`
+        UPDATE ai_refresh_jobs
+        SET status = 'failed', error_message = ?, updated_at = ?
+        WHERE id = ?
+      `).bind("OddzzAI refresh batch failed.", nowIso(), job.id).run();
+      return;
+    }
+
+    const nextTeamOffset = result.next.team_offset;
+    const nextFixtureOffset = result.next.fixture_offset;
+    const isComplete = nextTeamOffset === null && nextFixtureOffset === null;
+    await env.DB.prepare(`
+      UPDATE ai_refresh_jobs
+      SET status = ?,
+        team_offset = ?,
+        fixture_offset = ?,
+        total_teams = ?,
+        total_fixtures = ?,
+        last_result_json = ?,
+        error_message = NULL,
+        updated_at = ?,
+        completed_at = ?
+      WHERE id = ?
+    `).bind(
+      isComplete ? "completed" : "running",
+      nextTeamOffset ?? result.teams,
+      nextFixtureOffset ?? result.world_cup_fixtures,
+      result.teams,
+      result.world_cup_fixtures,
+      JSON.stringify(result),
+      nowIso(),
+      isComplete ? nowIso() : null,
+      job.id,
+    ).run();
+  } catch (error) {
+    await env.DB.prepare(`
+      UPDATE ai_refresh_jobs
+      SET status = 'failed', error_message = ?, updated_at = ?
+      WHERE id = ?
+    `).bind(error instanceof Error ? error.message : "Unknown refresh error.", nowIso(), job.id).run();
+  }
 }
 
 export async function debugAiFixtureData(env: Env, matchId: string) {
@@ -1496,7 +1656,7 @@ export async function debugAiFixtureData(env: Env, matchId: string) {
     home: safeNumber(match.home_team_api_id),
     away: safeNumber(match.away_team_api_id),
   };
-  const fetchedTeams = storedTeams.home && storedTeams.away ? null : await fetchFixtureTeams(env, match.external_id).catch(() => null);
+  const fetchedTeams = storedTeams.home && storedTeams.away ? null : await fetchFixtureTeams(env, match.external_id, { allowProviderFetch: true }).catch(() => null);
   const teams = {
     home: storedTeams.home ?? fetchedTeams?.home ?? null,
     away: storedTeams.away ?? fetchedTeams?.away ?? null,
