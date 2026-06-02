@@ -45,9 +45,15 @@ type TeamFormHistory = {
   };
   record: { wins: number; draws: number; losses: number };
   matches: any[];
+  debug?: {
+    raw_count: number;
+    completed_count: number;
+    before_match_count: number;
+    side_matched_count: number;
+  };
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v25";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v26";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -183,6 +189,37 @@ async function fetchApiFootball<T = any>(env: Env, path: string, params: Record<
   });
   if (!response.ok) return null;
   return response.json() as Promise<T>;
+}
+
+async function debugFetchApiFootball(env: Env, path: string, params: Record<string, string | number | null | undefined>) {
+  if (!env.FOOTBALL_API_KEY) return { ok: false, status: null, response_count: 0, error: "FOOTBALL_API_KEY is not configured." };
+  const url = new URL(`${apiFootballBaseUrl(env)}${path}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== "") url.searchParams.set(key, String(value));
+  }
+  const response = await fetch(url.toString(), {
+    headers: { "x-apisports-key": env.FOOTBALL_API_KEY },
+  });
+  const payload = await response.json().catch(() => null) as any;
+  const rows = Array.isArray(payload?.response) ? payload.response : [];
+  return {
+    ok: response.ok,
+    status: response.status,
+    endpoint: `${path}?${url.searchParams.toString()}`,
+    response_count: rows.length,
+    errors: payload?.errors ?? null,
+    sample: rows.slice(0, 5).map((fixture: any) => ({
+      fixture_id: fixture?.fixture?.id ?? null,
+      date: fixture?.fixture?.date ?? null,
+      status: fixture?.fixture?.status?.short ?? fixture?.fixture?.status?.long ?? null,
+      league: fixture?.league ? { id: fixture.league.id ?? null, season: fixture.league.season ?? null, round: fixture.league.round ?? null } : null,
+      teams: fixture?.teams ? {
+        home: { id: fixture.teams.home?.id ?? null, name: fixture.teams.home?.name ?? null },
+        away: { id: fixture.teams.away?.id ?? null, name: fixture.teams.away?.name ?? null },
+      } : null,
+      goals: fixture?.goals ?? null,
+    })),
+  };
 }
 
 function compactTeamStats(payload: any) {
@@ -321,11 +358,10 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, teamNa
       if (fixtureId == null) return true;
       return all.findIndex((candidate: any) => candidate?.fixture?.id === fixtureId) === index;
     });
-  const matches = fixtures
-    .filter((fixture: any) => isWorldCupQualifierFixture(fixture))
-    .filter((fixture: any) => isCompletedFixture(fixture))
-    .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
-    .filter((fixture: any) => sideForTeam(fixture, teamId) !== null)
+  const completedFixtures = fixtures.filter((fixture: any) => isCompletedFixture(fixture));
+  const beforeMatchFixtures = completedFixtures.filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime);
+  const sideMatchedFixtures = beforeMatchFixtures.filter((fixture: any) => sideForTeam(fixture, teamId) !== null);
+  const matches = sideMatchedFixtures
     .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
     .slice(0, 12)
     .map((fixture: any) => {
@@ -374,6 +410,12 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, teamNa
     last_3_summary: summarizeLastThree(matches, teamId),
     record,
     matches,
+    debug: {
+      raw_count: fixtures.length,
+      completed_count: completedFixtures.length,
+      before_match_count: beforeMatchFixtures.length,
+      side_matched_count: sideMatchedFixtures.length,
+    },
   };
 }
 
@@ -794,6 +836,19 @@ async function fetchTeamWorldCupQualifierPayloads(env: Env, teamId: number | nul
   )));
 }
 
+function qualifierEndpointSummary(payloads: any[]) {
+  return WORLD_CUP_2026_QUALIFIER_COMPETITIONS.map((competition, index) => {
+    const rows = Array.isArray(payloads[index]?.response) ? payloads[index].response : [];
+    return {
+      league: competition.league,
+      season: competition.season,
+      confederation: competition.confederation,
+      response_count: rows.length,
+      completed_count: rows.filter((fixture: any) => isCompletedFixture(fixture)).length,
+    };
+  });
+}
+
 async function fetchHostRecentHistory(env: Env, teamId: number | null, teamName: string, beforeIso: string) {
   if (!env.FOOTBALL_API_KEY || !teamId || !HOST_RECENT_FORM_TEAMS.has(teamName)) return null;
   const hostPayload = await fetchApiFootball(env, "/fixtures", { team: teamId, last: 10 }).catch(() => null);
@@ -873,6 +928,10 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
       away: { team: match.away_team, strength: teamStrength(match.away_team), regional_boost: regionalTournamentBoost(match.away_team) },
       strength_gap_home_minus_away: (teamStrength(match.home_team) + regionalTournamentBoost(match.home_team)) - (teamStrength(match.away_team) + regionalTournamentBoost(match.away_team)),
       suggested_score_hint: baselineScoreHint(match.home_team, match.away_team),
+    },
+    qualifier_endpoint_debug: {
+      home: qualifierEndpointSummary(homeQualifierPayloads),
+      away: qualifierEndpointSummary(awayQualifierPayloads),
     },
     teams: {
       home: { id: teams?.home ?? null, name: match.home_team, stats: homeStats, recent_form: homeForm ?? [], world_cup_qualifiers: homeQualifierHistory, standing: homeStanding },
@@ -1062,4 +1121,57 @@ export async function scheduledAiInsightRefresh(env: Env) {
     await cachedOrGenerateInsightFromStats(env, match, "en", stats).catch(() => null);
     await cachedOrGenerateInsightFromStats(env, match, "fr", stats).catch(() => null);
   }
+}
+
+export async function debugAiFixtureData(env: Env, matchId: string) {
+  const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(matchId).first<MatchRow>();
+  if (!match) return badRequest("Match not found.", 404);
+
+  const storedTeams = {
+    home: safeNumber(match.home_team_api_id),
+    away: safeNumber(match.away_team_api_id),
+  };
+  const fetchedTeams = storedTeams.home && storedTeams.away ? null : await fetchFixtureTeams(env, match.external_id).catch(() => null);
+  const teams = {
+    home: storedTeams.home ?? fetchedTeams?.home ?? null,
+    away: storedTeams.away ?? fetchedTeams?.away ?? null,
+  };
+
+  const qualifierDebugForTeam = async (teamId: number | null) => {
+    if (!teamId) return [];
+    return Promise.all(WORLD_CUP_2026_QUALIFIER_COMPETITIONS.map(async (competition) => {
+      const result = await debugFetchApiFootball(env, "/fixtures", {
+        league: competition.league,
+        season: competition.season,
+        team: teamId,
+      });
+      const sample = Array.isArray(result.sample) ? result.sample : [];
+      const completed = (status: unknown) => {
+        const short = String(status ?? "").toUpperCase();
+        return ["FT", "AET", "PEN"].includes(short);
+      };
+      return {
+        competition,
+        ...result,
+        completed_sample_count: sample.filter((fixture: any) => completed(fixture.status)).length,
+      };
+    }));
+  };
+
+  return json({
+    match: {
+      id: match.id,
+      external_id: match.external_id,
+      home_team: match.home_team,
+      away_team: match.away_team,
+      kickoff_at: match.kickoff_at,
+    },
+    stored_team_ids: storedTeams,
+    fetched_team_ids: fetchedTeams,
+    effective_team_ids: teams,
+    qualifiers: {
+      home: await qualifierDebugForTeam(teams.home),
+      away: await qualifierDebugForTeam(teams.away),
+    },
+  });
 }

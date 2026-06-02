@@ -33,7 +33,7 @@ import {
 } from "./global-admin";
 import { leagueHome } from "./live";
 import { scheduledSync, syncWorldCupMatches } from "./sync";
-import { fixtureAiInsight, scheduledAiInsightRefresh } from "./ai";
+import { debugAiFixtureData, fixtureAiInsight, scheduledAiInsightRefresh } from "./ai";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -88,6 +88,13 @@ async function handleApi(request: Request, env: Env) {
 
   const aiInsightParams = routeParams(pathname, /^\/api\/matches\/([^/]+)\/ai-insight$/);
   if (request.method === "GET" && aiInsightParams) return fixtureAiInsight(request, env, aiInsightParams[0]);
+
+  const aiDebugParams = routeParams(pathname, /^\/api\/admin\/debug\/matches\/([^/]+)\/ai-data$/);
+  if (request.method === "GET" && aiDebugParams) {
+    const admin = await requireGlobalAdmin(request, env);
+    if (admin.error) return admin.error;
+    return debugAiFixtureData(env, aiDebugParams[0]);
+  }
 
   const removeMemberParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/members\/([^/]+)$/);
   if (request.method === "DELETE" && removeMemberParams) return removeLeagueMember(request, env, removeMemberParams[0], removeMemberParams[1]);
