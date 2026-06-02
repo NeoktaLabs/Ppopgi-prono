@@ -53,7 +53,7 @@ type TeamFormHistory = {
   };
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v28";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v29";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
@@ -206,6 +206,13 @@ function addParams(url: URL, params: Record<string, string | number | null | und
   }
 }
 
+function hasApiFootballErrors(payload: any) {
+  if (!payload?.errors) return false;
+  if (Array.isArray(payload.errors)) return payload.errors.length > 0;
+  if (typeof payload.errors === "object") return Object.keys(payload.errors).length > 0;
+  return Boolean(payload.errors);
+}
+
 async function fetchApiFootballFromProvider<T = any>(env: Env, path: string, params: Record<string, string | number | null | undefined>) {
   if (!env.FOOTBALL_API_KEY) return null;
   const url = new URL(`${apiFootballBaseUrl(env)}${path}`);
@@ -214,7 +221,9 @@ async function fetchApiFootballFromProvider<T = any>(env: Env, path: string, par
     headers: { "x-apisports-key": env.FOOTBALL_API_KEY },
   });
   if (!response.ok) return null;
-  return response.json() as Promise<T>;
+  const payload = await response.json().catch(() => null);
+  if (!payload || hasApiFootballErrors(payload)) return null;
+  return payload as T;
 }
 
 async function readCachedApiFootball<T = any>(env: Env, cacheKey: string) {
@@ -224,7 +233,9 @@ async function readCachedApiFootball<T = any>(env: Env, cacheKey: string) {
       WHERE cache_key = ? AND expires_at > ?
       LIMIT 1
     `).bind(cacheKey, nowIso()).first<{ payload_json: string }>();
-    return cached ? JSON.parse(cached.payload_json) as T : null;
+    if (!cached) return null;
+    const payload = JSON.parse(cached.payload_json);
+    return hasApiFootballErrors(payload) ? null : payload as T;
   } catch {
     return null;
   }
@@ -363,7 +374,9 @@ async function readApiFootballDataset<T = any>(env: Env, path: string, params: R
       WHERE cache_key = ?
       LIMIT 1
     `).bind(cacheKey).first<{ payload_json: string }>();
-    return cached ? JSON.parse(cached.payload_json) as T : null;
+    if (!cached) return null;
+    const payload = JSON.parse(cached.payload_json);
+    return hasApiFootballErrors(payload) ? null : payload as T;
   } catch {
     return null;
   }
@@ -1090,17 +1103,20 @@ async function fetchTeamStats(env: Env, teamId: number | null, options: StatsSna
 
 async function fetchTeamWorldCupQualifierPayloads(env: Env, teamId: number | null, options: StatsSnapshotOptions) {
   if (!teamId) return [];
-  return Promise.all(WORLD_CUP_2026_QUALIFIER_COMPETITIONS.map((competition) => (
-    options.allowProviderFetch
-      ? getApiFootball(env, "/fixtures", {
+  const payloads = [];
+  for (const competition of WORLD_CUP_2026_QUALIFIER_COMPETITIONS) {
+    const payload = options.allowProviderFetch
+      ? await getApiFootball(env, "/fixtures", {
         league: competition.league,
         season: competition.season,
         team: teamId,
       }, options)
         .then((payload) => payload ?? readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season))
         .catch(() => readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season))
-      : readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season)
-  )));
+      : await readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season);
+    payloads.push(payload);
+  }
+  return payloads;
 }
 
 async function readStoredTeamQualifierPayload(env: Env, teamId: number, league: number, season: number) {
