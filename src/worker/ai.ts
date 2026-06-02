@@ -47,7 +47,7 @@ type TeamFormHistory = {
   matches: any[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v21";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v24";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -216,6 +216,17 @@ function compactFixture(fixture: any) {
   };
 }
 
+function compactFixtureForTeam(fixture: any, teamId: number) {
+  const side = sideForTeam(fixture, teamId);
+  const opponent = opponentNameForTeam(fixture, teamId);
+  return {
+    ...compactFixture(fixture),
+    team_side: side,
+    opponent,
+    opponent_strength: teamStrength(opponent ?? ""),
+  };
+}
+
 function isWorldCupQualifierFixture(fixture: any) {
   const leagueId = safeNumber(fixture?.league?.id);
   return WORLD_CUP_2026_QUALIFIER_COMPETITIONS.some((competition) => competition.league === leagueId);
@@ -231,28 +242,16 @@ function isCompletedFixture(fixture: any) {
   return ["FT", "AET", "PEN"].includes(short) || long.includes("match finished");
 }
 
-function normalizeTeamName(value: unknown) {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\bislands?\b/g, "")
-    .replace(/[^a-z0-9]/gi, "")
-    .toLowerCase();
-}
-
-function sideForTeam(fixture: any, teamId: number, teamName: string) {
+function sideForTeam(fixture: any, teamId: number) {
   const homeId = safeNumber(fixture?.teams?.home?.id);
   const awayId = safeNumber(fixture?.teams?.away?.id);
-  const targetName = normalizeTeamName(teamName);
-  const homeName = normalizeTeamName(fixture?.teams?.home?.name);
-  const awayName = normalizeTeamName(fixture?.teams?.away?.name);
-  if (homeId === teamId || (targetName && homeName === targetName)) return "home";
-  if (awayId === teamId || (targetName && awayName === targetName)) return "away";
+  if (homeId === teamId) return "home";
+  if (awayId === teamId) return "away";
   return null;
 }
 
-function resultForTeam(fixture: any, teamId: number, teamName: string) {
-  const side = sideForTeam(fixture, teamId, teamName);
+function resultForTeam(fixture: any, teamId: number) {
+  const side = sideForTeam(fixture, teamId);
   const homeGoals = safeNumber(fixture?.goals?.home ?? fixture?.score?.fulltime?.home);
   const awayGoals = safeNumber(fixture?.goals?.away ?? fixture?.score?.fulltime?.away);
   if (homeGoals === null || awayGoals === null) return null;
@@ -262,8 +261,8 @@ function resultForTeam(fixture: any, teamId: number, teamName: string) {
   return own > against ? "W" : own < against ? "L" : "D";
 }
 
-function opponentNameForTeam(fixture: any, teamId: number, teamName: string) {
-  const side = sideForTeam(fixture, teamId, teamName);
+function opponentNameForTeam(fixture: any, teamId: number) {
+  const side = sideForTeam(fixture, teamId);
   if (side === "home") return fixture?.teams?.away?.name ?? null;
   if (side === "away") return fixture?.teams?.home?.name ?? null;
   return null;
@@ -310,22 +309,28 @@ function summarizeLastThree(matches: any[], teamId: number) {
 
 function compactQualifierHistory(fixturesPayloads: any[], teamId: number, teamName: string, beforeIso: string): TeamFormHistory {
   const beforeTime = new Date(beforeIso).getTime();
-  const fixtures = fixturesPayloads.flatMap((payload) => Array.isArray(payload?.response) ? payload.response : []);
+  const fixtures = fixturesPayloads
+    .flatMap((payload) => Array.isArray(payload?.response) ? payload.response : [])
+    .filter((fixture: any, index: number, all: any[]) => {
+      const fixtureId = fixture?.fixture?.id;
+      if (fixtureId == null) return true;
+      return all.findIndex((candidate: any) => candidate?.fixture?.id === fixtureId) === index;
+    });
   const matches = fixtures
     .filter((fixture: any) => isWorldCupQualifierFixture(fixture))
     .filter((fixture: any) => isCompletedFixture(fixture))
     .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
-    .filter((fixture: any) => sideForTeam(fixture, teamId, teamName) !== null)
+    .filter((fixture: any) => sideForTeam(fixture, teamId) !== null)
     .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
     .slice(0, 12)
     .map((fixture: any) => {
       const leagueId = safeNumber(fixture?.league?.id);
       const competition = qualifierCompetitionForLeague(leagueId);
-      const side = sideForTeam(fixture, teamId, teamName);
-      const opponent = opponentNameForTeam(fixture, teamId, teamName);
+      const side = sideForTeam(fixture, teamId);
+      const opponent = opponentNameForTeam(fixture, teamId);
       return {
         ...compactFixture(fixture),
-        result: resultForTeam(fixture, teamId, teamName),
+        result: resultForTeam(fixture, teamId),
         team_side: side,
         opponent,
         opponent_strength: teamStrength(opponent ?? ""),
@@ -373,15 +378,15 @@ function compactHostRecentHistory(payload: any, teamId: number, teamName: string
   const matches = fixtures
     .filter((fixture: any) => isCompletedFixture(fixture))
     .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
-    .filter((fixture: any) => sideForTeam(fixture, teamId, teamName) !== null)
+    .filter((fixture: any) => sideForTeam(fixture, teamId) !== null)
     .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
     .slice(0, 10)
     .map((fixture: any) => {
-      const side = sideForTeam(fixture, teamId, teamName);
-      const opponent = opponentNameForTeam(fixture, teamId, teamName);
+      const side = sideForTeam(fixture, teamId);
+      const opponent = opponentNameForTeam(fixture, teamId);
       return {
         ...compactFixture(fixture),
-        result: resultForTeam(fixture, teamId, teamName),
+        result: resultForTeam(fixture, teamId),
         team_side: side,
         opponent,
         opponent_strength: teamStrength(opponent ?? ""),
@@ -597,10 +602,10 @@ function qualifierFormSignal(homeHistory: any, awayHistory: any) {
 
 function recentFormSignal(homeForm: any[], awayForm: any[], homeTeam: string, awayTeam: string) {
   if (!homeForm?.length || !awayForm?.length) return { signal: "sparse" as ScoreSignal, reason: "Generic recent-form data is sparse." };
-  const avgGoalDiff = (fixtures: any[], teamName: string) => {
+  const avgGoalDiff = (fixtures: any[]) => {
     const diffs = fixtures.map((fixture) => {
-      const home = fixture.teams?.home === teamName;
-      const away = fixture.teams?.away === teamName;
+      const home = fixture.team_side === "home";
+      const away = fixture.team_side === "away";
       const homeGoals = safeNumber(fixture.score?.home);
       const awayGoals = safeNumber(fixture.score?.away);
       if ((!home && !away) || homeGoals === null || awayGoals === null) return null;
@@ -608,8 +613,8 @@ function recentFormSignal(homeForm: any[], awayForm: any[], homeTeam: string, aw
     }).filter((value): value is number => value !== null);
     return diffs.length ? diffs.reduce((sum, value) => sum + value, 0) / diffs.length : null;
   };
-  const homeDiff = avgGoalDiff(homeForm, homeTeam);
-  const awayDiff = avgGoalDiff(awayForm, awayTeam);
+  const homeDiff = avgGoalDiff(homeForm);
+  const awayDiff = avgGoalDiff(awayForm);
   if (homeDiff === null || awayDiff === null) return { signal: "sparse" as ScoreSignal, reason: "Recent-form score data could not be normalized reliably." };
   const diff = homeDiff - awayDiff;
   if (Math.abs(diff) < 0.35) return { signal: "balanced" as ScoreSignal, reason: `Recent goal-difference form is close (${homeDiff.toFixed(2)} vs ${awayDiff.toFixed(2)}).` };
@@ -773,12 +778,13 @@ async function fetchTeamStats(env: Env, teamId: number | null) {
   return compactTeamStats(await fetchApiFootball(env, "/teams/statistics", { league, season, team: teamId }));
 }
 
-async function fetchWorldCupQualifierPayloads(env: Env) {
-  if (!env.FOOTBALL_API_KEY) return [];
+async function fetchTeamWorldCupQualifierPayloads(env: Env, teamId: number | null) {
+  if (!env.FOOTBALL_API_KEY || !teamId) return [];
   return Promise.all(WORLD_CUP_2026_QUALIFIER_COMPETITIONS.map((competition) => (
     fetchApiFootball(env, "/fixtures", {
       league: competition.league,
       season: competition.season,
+      team: teamId,
     }).catch(() => null)
   )));
 }
@@ -793,12 +799,13 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
   const teams = await fetchFixtureTeams(env, match.external_id).catch(() => null);
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
-  const [homeStats, awayStats, homeForm, awayForm, qualifierPayloads, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
+  const [homeStats, awayStats, homeForm, awayForm, homeQualifierPayloads, awayQualifierPayloads, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
     fetchTeamStats(env, teams?.home ?? null).catch(() => null),
     fetchTeamStats(env, teams?.away ?? null).catch(() => null),
-    teams?.home ? fetchApiFootball(env, "/fixtures", { team: teams.home, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
-    teams?.away ? fetchApiFootball(env, "/fixtures", { team: teams.away, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map(compactFixture) ?? null).catch(() => null) : null,
-    fetchWorldCupQualifierPayloads(env).catch(() => []),
+    teams?.home ? fetchApiFootball(env, "/fixtures", { team: teams.home, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map((fixture: any) => compactFixtureForTeam(fixture, teams.home!)) ?? null).catch(() => null) : null,
+    teams?.away ? fetchApiFootball(env, "/fixtures", { team: teams.away, last: 5 }).then((payload: any) => payload?.response?.slice(0, 5).map((fixture: any) => compactFixtureForTeam(fixture, teams.away!)) ?? null).catch(() => null) : null,
+    fetchTeamWorldCupQualifierPayloads(env, teams?.home ?? null).catch(() => []),
+    fetchTeamWorldCupQualifierPayloads(env, teams?.away ?? null).catch(() => []),
     teams?.home ? fetchApiFootball(env, "/standings", { league, season, team: teams.home }).then(compactStanding).catch(() => null) : null,
     teams?.away ? fetchApiFootball(env, "/standings", { league, season, team: teams.away }).then(compactStanding).catch(() => null) : null,
     teams?.home && teams?.away ? fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${teams.home}-${teams.away}`, last: 10 }).then((payload: any) => payload?.response?.slice(0, 10).map(compactFixture) ?? null).catch(() => null) : null,
@@ -806,8 +813,8 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     fetchApiFootball(env, "/injuries", { fixture: match.external_id }).then(compactInjuries).catch(() => null),
     fetchApiFootball(env, "/odds", { fixture: match.external_id }).then(compactOdds).catch(() => null),
   ]);
-  let homeQualifierHistory = teams?.home ? compactQualifierHistory(qualifierPayloads, teams.home, match.home_team, match.kickoff_at) : null;
-  let awayQualifierHistory = teams?.away ? compactQualifierHistory(qualifierPayloads, teams.away, match.away_team, match.kickoff_at) : null;
+  let homeQualifierHistory = teams?.home ? compactQualifierHistory(homeQualifierPayloads, teams.home, match.home_team, match.kickoff_at) : null;
+  let awayQualifierHistory = teams?.away ? compactQualifierHistory(awayQualifierPayloads, teams.away, match.away_team, match.kickoff_at) : null;
   if (homeQualifierHistory && homeQualifierHistory.matches.length === 0 && HOST_RECENT_FORM_TEAMS.has(match.home_team)) {
     homeQualifierHistory = await fetchHostRecentHistory(env, teams?.home ?? null, match.home_team, match.kickoff_at).catch(() => homeQualifierHistory);
   }
