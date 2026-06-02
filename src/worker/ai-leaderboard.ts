@@ -50,26 +50,38 @@ function canUseAiBonus(row: AiInsightRow, insight: ReturnType<typeof parseInsigh
   return insight.bonus_recommendation?.use_bonus === true && isGroupStage(row.stage) && new Date(row.insight_created_at).getTime() <= new Date(row.kickoff_at).getTime();
 }
 
+function isPreKickoffAiInsight(row: AiInsightRow) {
+  return new Date(row.insight_created_at).getTime() <= new Date(row.kickoff_at).getTime();
+}
+
 function aiBonusMatchIds(rows: AiInsightRow[]) {
   const ids = new Set<string>();
   for (const row of rows.slice().sort((a, b) => new Date(a.kickoff_at).getTime() - new Date(b.kickoff_at).getTime())) {
     if (ids.size >= 2) break;
+    if (!isPreKickoffAiInsight(row)) continue;
     const insight = parseInsightJson(row.insight_json);
     if (canUseAiBonus(row, insight)) ids.add(row.id);
   }
   return ids;
 }
 
+function latestPreKickoffRows(rows: AiInsightRow[]) {
+  const byMatch = new Map<string, AiInsightRow>();
+  for (const row of rows) {
+    if (!isPreKickoffAiInsight(row)) continue;
+    const existing = byMatch.get(row.id);
+    if (!existing || new Date(row.insight_created_at).getTime() > new Date(existing.insight_created_at).getTime()) {
+      byMatch.set(row.id, row);
+    }
+  }
+  return Array.from(byMatch.values());
+}
+
 export async function oddzzAiLeaderboardRow(env: Env, includeLive = false): Promise<Omit<LeaderboardLikeRow, "rank"> | null> {
   const rows = await env.DB.prepare(`
     SELECT matches.*, insights.insight_json, insights.created_at as insight_created_at
     FROM matches
-    JOIN (
-      SELECT match_id, MAX(updated_at) as updated_at
-      FROM ai_fixture_insights
-      GROUP BY match_id
-    ) latest ON latest.match_id = matches.id
-    JOIN ai_fixture_insights insights ON insights.match_id = latest.match_id AND insights.updated_at = latest.updated_at
+    JOIN ai_fixture_insights insights ON insights.match_id = matches.id
   `).all<AiInsightRow>();
 
   let points = 0;
@@ -77,9 +89,10 @@ export async function oddzzAiLeaderboardRow(env: Env, includeLive = false): Prom
   let correctResults = 0;
   let predictionsCount = 0;
   const allRows = rows.results ?? [];
-  const bonusMatchIds = aiBonusMatchIds(allRows);
+  const preKickoffRows = latestPreKickoffRows(allRows);
+  const bonusMatchIds = aiBonusMatchIds(preKickoffRows);
 
-  for (const row of allRows) {
+  for (const row of preKickoffRows) {
     const insight = parseInsightJson(row.insight_json);
     const predicted = parseAiScoreline(insight.suggested_pick);
     if (!predicted) continue;
@@ -118,12 +131,7 @@ export async function oddzzAiVisiblePredictions(env: Env) {
   const rows = await env.DB.prepare(`
     SELECT matches.*, insights.insight_json, insights.created_at as insight_created_at
     FROM matches
-    JOIN (
-      SELECT match_id, MAX(updated_at) as updated_at
-      FROM ai_fixture_insights
-      GROUP BY match_id
-    ) latest ON latest.match_id = matches.id
-    JOIN ai_fixture_insights insights ON insights.match_id = latest.match_id AND insights.updated_at = latest.updated_at
+    JOIN ai_fixture_insights insights ON insights.match_id = matches.id
     WHERE matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time')
       OR matches.kickoff_at <= datetime('now')
       OR matches.final_home IS NOT NULL
@@ -132,9 +140,10 @@ export async function oddzzAiVisiblePredictions(env: Env) {
   `).all<AiInsightRow>();
 
   const allRows = rows.results ?? [];
-  const bonusMatchIds = aiBonusMatchIds(allRows);
+  const preKickoffRows = latestPreKickoffRows(allRows);
+  const bonusMatchIds = aiBonusMatchIds(preKickoffRows);
 
-  return allRows.map((row) => {
+  return preKickoffRows.map((row) => {
     const insight = parseInsightJson(row.insight_json);
     const predicted = parseAiScoreline(insight.suggested_pick);
     const score = scoreForMatch(row, true);

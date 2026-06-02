@@ -47,7 +47,7 @@ type TeamFormHistory = {
   matches: any[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v19";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v20";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -256,9 +256,9 @@ function adjustedResultPoints(result: string | null, opponentStrength: number) {
   return raw * Math.max(0.72, Math.min(1.25, opponentStrength / 76));
 }
 
-function scoreForTeam(match: any, teamName: string) {
-  const home = match.teams?.home === teamName;
-  const away = match.teams?.away === teamName;
+function scoreForTeam(match: any, teamId: number) {
+  const home = match.team_side === "home";
+  const away = match.team_side === "away";
   const homeGoals = safeNumber(match.score?.home);
   const awayGoals = safeNumber(match.score?.away);
   if ((!home && !away) || homeGoals === null || awayGoals === null) return null;
@@ -268,10 +268,10 @@ function scoreForTeam(match: any, teamName: string) {
   };
 }
 
-function summarizeLastThree(matches: any[], teamName: string) {
+function summarizeLastThree(matches: any[], teamId: number) {
   const lastThree = matches.slice(0, 3);
   const summary = lastThree.reduce((acc: TeamFormHistory["last_3_summary"], match: any) => {
-    const score = scoreForTeam(match, teamName);
+    const score = scoreForTeam(match, teamId);
     if (match.result === "W") acc.record.wins += 1;
     if (match.result === "D") acc.record.draws += 1;
     if (match.result === "L") acc.record.losses += 1;
@@ -302,9 +302,12 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, teamNa
     .map((fixture: any) => {
       const leagueId = safeNumber(fixture?.league?.id);
       const competition = qualifierCompetitionForLeague(leagueId);
+      const homeId = safeNumber(fixture?.teams?.home?.id);
+      const awayId = safeNumber(fixture?.teams?.away?.id);
       return {
         ...compactFixture(fixture),
         result: resultForTeam(fixture, teamId),
+        team_side: homeId === teamId ? "home" : awayId === teamId ? "away" : null,
         opponent: opponentNameForTeam(fixture, teamId),
         opponent_strength: teamStrength(opponentNameForTeam(fixture, teamId) ?? ""),
         confederation: competition?.confederation ?? null,
@@ -339,7 +342,7 @@ function compactQualifierHistory(fixturesPayloads: any[], teamId: number, teamNa
     competition_strength: Number(competitionStrength.toFixed(2)),
     average_opponent_strength: Number(averageOpponentStrength.toFixed(1)),
     adjusted_points_per_match: Number(adjustedPointsPerMatch.toFixed(2)),
-    last_3_summary: summarizeLastThree(matches, teamName),
+    last_3_summary: summarizeLastThree(matches, teamId),
     record,
     matches,
   };
@@ -353,14 +356,19 @@ function compactHostRecentHistory(payload: any, teamId: number, teamName: string
     .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
     .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
     .slice(0, 10)
-    .map((fixture: any) => ({
-      ...compactFixture(fixture),
-      result: resultForTeam(fixture, teamId),
-      opponent: opponentNameForTeam(fixture, teamId),
-      opponent_strength: teamStrength(opponentNameForTeam(fixture, teamId) ?? ""),
-      confederation: "CONCACAF",
-      competition_strength: 0.92,
-    }))
+    .map((fixture: any) => {
+      const homeId = safeNumber(fixture?.teams?.home?.id);
+      const awayId = safeNumber(fixture?.teams?.away?.id);
+      return {
+        ...compactFixture(fixture),
+        result: resultForTeam(fixture, teamId),
+        team_side: homeId === teamId ? "home" : awayId === teamId ? "away" : null,
+        opponent: opponentNameForTeam(fixture, teamId),
+        opponent_strength: teamStrength(opponentNameForTeam(fixture, teamId) ?? ""),
+        confederation: "CONCACAF",
+        competition_strength: 0.92,
+      };
+    })
     .filter(Boolean);
   const record = matches.reduce((acc: { wins: number; draws: number; losses: number }, fixture: any) => {
     if (fixture.result === "W") acc.wins += 1;
@@ -385,7 +393,7 @@ function compactHostRecentHistory(payload: any, teamId: number, teamName: string
     competition_strength: 0.92,
     average_opponent_strength: Number(averageOpponentStrength.toFixed(1)),
     adjusted_points_per_match: Number(adjustedPointsPerMatch.toFixed(2)),
-    last_3_summary: summarizeLastThree(matches, teamName),
+    last_3_summary: summarizeLastThree(matches, teamId),
     record,
     matches,
   };
@@ -931,17 +939,19 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
   if (!match) return badRequest("Match not found.", 404);
   const language = new URL(request.url).searchParams.get("lang") === "fr" ? "fr" : "en";
 
-  return json(await cachedOrGenerateInsight(env, match, language));
+  const result = await cachedOrGenerateInsight(env, match, language);
+  return result instanceof Response ? result : json(result);
 }
 
-async function latestCachedInsight(env: Env, matchId: string, language: InsightLanguage) {
+async function latestCachedInsight(env: Env, matchId: string, language: InsightLanguage, kickoffAt: string) {
   return env.DB.prepare(`
     SELECT insight_json, updated_at, stats_json FROM ai_fixture_insights
     WHERE match_id = ?
       AND json_extract(stats_json, '$.prompt_version') = ?
       AND json_extract(stats_json, '$.language') = ?
+      AND created_at <= ?
     ORDER BY updated_at DESC LIMIT 1
-  `).bind(matchId, INSIGHT_PROMPT_VERSION, language).first<{ insight_json: string; updated_at: string; stats_json: string }>();
+  `).bind(matchId, INSIGHT_PROMPT_VERSION, language, kickoffAt).first<{ insight_json: string; updated_at: string; stats_json: string }>();
 }
 
 async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, language: InsightLanguage, stats: Awaited<ReturnType<typeof buildStatsSnapshot>>) {
@@ -974,10 +984,13 @@ async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, langu
 }
 
 async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: InsightLanguage) {
-  const cached = await latestCachedInsight(env, match.id, language);
+  const cached = await latestCachedInsight(env, match.id, language, match.kickoff_at);
   if (cached) {
     const parsedStats = JSON.parse(cached.stats_json) as { stats?: { source?: string } };
     return { insight: JSON.parse(cached.insight_json), cached: true, updated_at: cached.updated_at, stats_source: parsedStats.stats?.source ?? "cached" };
+  }
+  if (new Date(match.kickoff_at).getTime() <= Date.now()) {
+    return badRequest("OddzzAI predictions are only generated before kickoff.", 409);
   }
   return cachedOrGenerateInsightFromStats(env, match, language, await buildStatsSnapshot(env, match));
 }
