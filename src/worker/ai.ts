@@ -53,7 +53,7 @@ type TeamFormHistory = {
   };
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v26";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v27";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
@@ -1060,6 +1060,18 @@ async function cachedHistoricalDetailsForHistory(env: Env, history: TeamFormHist
 }
 
 async function fetchFixtureTeams(env: Env, externalId: string, options: StatsSnapshotOptions) {
+  const cachedFixture = await env.DB.prepare(`
+    SELECT home_team_api_id, away_team_api_id
+    FROM ai_football_fixtures
+    WHERE api_fixture_id = ?
+    LIMIT 1
+  `).bind(safeNumber(externalId)).first<{ home_team_api_id: number | null; away_team_api_id: number | null }>().catch(() => null);
+  if (cachedFixture?.home_team_api_id && cachedFixture?.away_team_api_id) {
+    return {
+      home: safeNumber(cachedFixture.home_team_api_id),
+      away: safeNumber(cachedFixture.away_team_api_id),
+    };
+  }
   const payload = await getApiFootball<{ response?: any[] }>(env, "/fixtures", { id: externalId }, options);
   const fixture = payload?.response?.[0];
   return fixture?.teams ? {
