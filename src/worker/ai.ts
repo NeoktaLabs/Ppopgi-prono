@@ -55,6 +55,7 @@ type TeamFormHistory = {
 
 const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v26";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
+const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -332,6 +333,21 @@ async function fetchApiFootball<T = any>(
   return payload;
 }
 
+async function readApiFootballDataset<T = any>(env: Env, path: string, params: Record<string, string | number | null | undefined>) {
+  const cleanParams = normalizedParams(params);
+  const cacheKey = await sha256(JSON.stringify({ provider: "api-football", path, params: cleanParams }));
+  try {
+    const cached = await env.DB.prepare(`
+      SELECT payload_json FROM ai_football_dataset_cache
+      WHERE cache_key = ?
+      LIMIT 1
+    `).bind(cacheKey).first<{ payload_json: string }>();
+    return cached ? JSON.parse(cached.payload_json) as T : null;
+  } catch {
+    return null;
+  }
+}
+
 async function debugFetchApiFootball(env: Env, path: string, params: Record<string, string | number | null | undefined>) {
   if (!env.FOOTBALL_API_KEY) return { ok: false, status: null, response_count: 0, error: "FOOTBALL_API_KEY is not configured." };
   const url = new URL(`${apiFootballBaseUrl(env)}${path}`);
@@ -377,6 +393,7 @@ function compactTeamStats(payload: any) {
 function compactFixture(fixture: any) {
   if (!fixture) return null;
   return {
+    fixture_id: fixture.fixture?.id ?? null,
     date: fixture.fixture?.date ?? null,
     status: fixture.fixture?.status?.short ?? fixture.fixture?.status?.long ?? null,
     league: fixture.league ? {
@@ -945,7 +962,81 @@ function buildScoutingInsights(match: MatchRow, scouting: any) {
       home: { team: match.home_team, boost: regionalTournamentBoost(match.home_team) },
       away: { team: match.away_team, boost: regionalTournamentBoost(match.away_team) },
     },
+    historical_match_details: scouting.historical_match_details ?? {
+      note: "No cached historical fixture statistics, events, or lineups are available yet.",
+      home: [],
+      away: [],
+    },
   };
+}
+
+function compactFixtureStatistics(payload: any) {
+  const rows = Array.isArray(payload?.response) ? payload.response : [];
+  return rows.map((team: any) => ({
+    team: team?.team?.name ?? null,
+    team_id: team?.team?.id ?? null,
+    statistics: Array.isArray(team?.statistics)
+      ? team.statistics
+        .filter((stat: any) => stat?.type && stat?.value != null)
+        .map((stat: any) => ({ type: stat.type, value: stat.value }))
+      : [],
+  })).filter((team: any) => team.team || team.team_id || team.statistics.length);
+}
+
+function compactFixtureEvents(payload: any) {
+  const rows = Array.isArray(payload?.response) ? payload.response : [];
+  return rows.slice(0, 18).map((event: any) => ({
+    minute: event?.time?.elapsed ?? null,
+    extra: event?.time?.extra ?? null,
+    team: event?.team?.name ?? null,
+    team_id: event?.team?.id ?? null,
+    player: event?.player?.name ?? null,
+    assist: event?.assist?.name ?? null,
+    type: event?.type ?? null,
+    detail: event?.detail ?? null,
+  })).filter((event: any) => event.type || event.player || event.team);
+}
+
+function compactFixtureLineups(payload: any) {
+  const rows = Array.isArray(payload?.response) ? payload.response : [];
+  return rows.map((lineup: any) => ({
+    team: lineup?.team?.name ?? null,
+    team_id: lineup?.team?.id ?? null,
+    formation: lineup?.formation ?? null,
+    coach: lineup?.coach?.name ?? null,
+    start_xi: Array.isArray(lineup?.startXI)
+      ? lineup.startXI.slice(0, 11).map((item: any) => ({
+        name: item?.player?.name ?? null,
+        number: item?.player?.number ?? null,
+        pos: item?.player?.pos ?? null,
+      }))
+      : [],
+  })).filter((lineup: any) => lineup.team || lineup.team_id);
+}
+
+async function cachedPastFixtureDetail(env: Env, fixtureId: number) {
+  const [statistics, events, lineups] = await Promise.all([
+    readApiFootballDataset(env, "/fixtures/statistics", { fixture: fixtureId }).then(compactFixtureStatistics).catch(() => []),
+    readApiFootballDataset(env, "/fixtures/events", { fixture: fixtureId }).then(compactFixtureEvents).catch(() => []),
+    readApiFootballDataset(env, "/fixtures/lineups", { fixture: fixtureId }).then(compactFixtureLineups).catch(() => []),
+  ]);
+  return {
+    fixture_id: fixtureId,
+    statistics,
+    events,
+    lineups,
+    datasets: {
+      statistics: statistics.length > 0,
+      events: events.length > 0,
+      lineups: lineups.length > 0,
+    },
+  };
+}
+
+async function cachedHistoricalDetailsForHistory(env: Env, history: TeamFormHistory | null) {
+  const fixtureIds = uniqueNumbers((history?.matches ?? []).slice(0, 3).map((fixture: any) => safeNumber(fixture.fixture_id)));
+  const details = await Promise.all(fixtureIds.map((fixtureId) => cachedPastFixtureDetail(env, fixtureId)));
+  return details.filter((detail) => detail.datasets.statistics || detail.datasets.events || detail.datasets.lineups);
 }
 
 async function fetchFixtureTeams(env: Env, externalId: string) {
@@ -1048,6 +1139,10 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
   if (awayQualifierHistory && awayQualifierHistory.matches.length === 0 && HOST_RECENT_FORM_TEAMS.has(match.away_team)) {
     awayQualifierHistory = await fetchHostRecentHistory(env, teams?.away ?? null, match.away_team, match.kickoff_at).catch(() => awayQualifierHistory);
   }
+  const [homeHistoricalDetails, awayHistoricalDetails] = await Promise.all([
+    cachedHistoricalDetailsForHistory(env, homeQualifierHistory).catch(() => []),
+    cachedHistoricalDetailsForHistory(env, awayQualifierHistory).catch(() => []),
+  ]);
   const datasets = {
     odds: !!odds,
     world_cup_qualifiers: !!((homeQualifierHistory?.matches.length ?? 0) || (awayQualifierHistory?.matches.length ?? 0)),
@@ -1081,6 +1176,11 @@ async function buildStatsSnapshot(env: Env, match: MatchRow) {
     provider_prediction: providerPrediction,
     head_to_head: h2h ?? [],
     injuries: injuries ?? [],
+    historical_match_details: {
+      note: "Cached past fixture statistics, events, and lineups for the most relevant completed qualifier/recent-form matches. These are historical datasets only, not live feeds.",
+      home: homeHistoricalDetails,
+      away: awayHistoricalDetails,
+    },
     baseline_strength_prior: {
       note: "Oddzz heuristic fallback used when provider data is limited. Higher means stronger expected team quality; it is not an official FIFA ranking. Regional context is a small World Cup 2026 travel/host boost, not home advantage.",
       home: { team: match.home_team, strength: teamStrength(match.home_team), regional_boost: regionalTournamentBoost(match.home_team) },
@@ -1161,6 +1261,7 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "You may mention tournament_context when present: USA, Canada and Mexico get a small host/travel context edge, and North/South American teams may get a smaller regional travel/context edge. Describe this as regional context, never as home advantage unless the team is actually a host playing in its host country.",
             "The stats JSON contains oddzz_scorecard. Treat this scorecard as the primary recommendation produced by Oddzz's deterministic engine. Explain it clearly; do not override its suggested_pick unless the provided raw datasets strongly contradict it.",
             "The stats JSON also contains scouting_insights. Use scouting_insights as the main source for user-facing bullets: last 3 results, goals scored, goals conceded, adjusted points per match, average opponent strength, and injury watch.",
+            "When scouting_insights.historical_match_details contains cached past fixture statistics, events, or lineups, use them to add concrete context such as shots, corners, cards, goals/events, formations, and notable starters. Do not invent those details when missing.",
             "When writing form bullets, use scouting_insights.form_comparison.home.source_label and scouting_insights.form_comparison.away.source_label. If a team source is host_recent_all_competitions or recent_form, do not describe that data as World Cup qualifiers.",
             "The angles array should be concrete and numerical where possible. Prefer bullets like 'Portugal last 3 qualifiers: W-W-D, 7 scored, 2 conceded, avg opponent strength 71.3' over generic statements like 'Portugal is stronger'.",
             "When injuries are available, mention key absences by player/team/reason. If injury data is unavailable, say 'No fixture injury list available yet' only if useful; do not overstate it.",
@@ -1288,6 +1389,29 @@ function uniqueNumbers(values: Array<number | null | undefined>) {
   return [...new Set(values.filter((value): value is number => typeof value === "number" && Number.isFinite(value)))];
 }
 
+function completedFixtureIdsFromPayloads(payloads: any[], beforeIso?: string) {
+  const beforeTime = beforeIso ? new Date(beforeIso).getTime() : Date.now();
+  return uniqueNumbers(payloads.flatMap((payload) => (
+    Array.isArray(payload?.response)
+      ? payload.response
+        .filter((fixture: any) => isCompletedFixture(fixture))
+        .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
+        .map((fixture: any) => safeNumber(fixture?.fixture?.id))
+      : []
+  )));
+}
+
+async function hydratePastFixtureDetails(env: Env, fixtureIds: number[]) {
+  let attempted = 0;
+  for (const fixtureId of fixtureIds) {
+    await fetchApiFootball(env, "/fixtures/statistics", { fixture: fixtureId }, { ttlSeconds: AI_PAST_DATA_CACHE_TTL_SECONDS }).catch(() => null);
+    await fetchApiFootball(env, "/fixtures/events", { fixture: fixtureId }, { ttlSeconds: AI_PAST_DATA_CACHE_TTL_SECONDS }).catch(() => null);
+    await fetchApiFootball(env, "/fixtures/lineups", { fixture: fixtureId }, { ttlSeconds: AI_PAST_DATA_CACHE_TTL_SECONDS }).catch(() => null);
+    attempted += 3;
+  }
+  return attempted;
+}
+
 export async function hydrateAiFootballData(request: Request, env: Env) {
   if (!env.FOOTBALL_API_KEY) return badRequest("FOOTBALL_API_KEY is not configured.", 503);
   const url = new URL(request.url);
@@ -1310,27 +1434,26 @@ export async function hydrateAiFootballData(request: Request, env: Env) {
   let recentRequests = 0;
   let statsRequests = 0;
   let standingsRequests = 0;
+  let historicalDetailRequests = 0;
+  const historicalFixtureIds = new Set<number>();
   for (const teamId of selectedTeamIds) {
-    await fetchTeamWorldCupQualifierPayloads(env, teamId);
+    const qualifierPayloads = await fetchTeamWorldCupQualifierPayloads(env, teamId);
+    for (const fixtureId of completedFixtureIdsFromPayloads(qualifierPayloads)) historicalFixtureIds.add(fixtureId);
     qualifierRequests += WORLD_CUP_2026_QUALIFIER_COMPETITIONS.length;
-    await fetchApiFootball(env, "/fixtures", { team: teamId, last: 10 }, { bypassCache: true }).catch(() => null);
+    const recentPayload = await fetchApiFootball(env, "/fixtures", { team: teamId, last: 10 }, { bypassCache: true }).catch(() => null);
+    for (const fixtureId of completedFixtureIdsFromPayloads([recentPayload])) historicalFixtureIds.add(fixtureId);
     recentRequests += 1;
     await fetchApiFootball(env, "/teams/statistics", { league, season, team: teamId }, { bypassCache: true }).catch(() => null);
     statsRequests += 1;
     await fetchApiFootball(env, "/standings", { league, season, team: teamId }, { bypassCache: true }).catch(() => null);
     standingsRequests += 1;
   }
+  historicalDetailRequests += await hydratePastFixtureDetails(env, [...historicalFixtureIds].slice(0, 30));
 
   let fixtureScoutingRequests = 0;
   for (const fixture of selectedFixtures) {
-    const fixtureId = safeNumber(fixture?.fixture?.id);
     const homeId = safeNumber(fixture?.teams?.home?.id);
     const awayId = safeNumber(fixture?.teams?.away?.id);
-    if (!fixtureId) continue;
-    await fetchApiFootball(env, "/predictions", { fixture: fixtureId }, { bypassCache: true }).catch(() => null);
-    await fetchApiFootball(env, "/injuries", { fixture: fixtureId }, { bypassCache: true }).catch(() => null);
-    await fetchApiFootball(env, "/odds", { fixture: fixtureId }, { bypassCache: true }).catch(() => null);
-    fixtureScoutingRequests += 3;
     if (homeId && awayId) {
       await fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${homeId}-${awayId}`, last: 10 }, { bypassCache: true }).catch(() => null);
       fixtureScoutingRequests += 1;
@@ -1359,6 +1482,7 @@ export async function hydrateAiFootballData(request: Request, env: Env) {
       recent_form: recentRequests,
       team_statistics: statsRequests,
       standings: standingsRequests,
+      historical_fixture_details: historicalDetailRequests,
       fixture_scouting: fixtureScoutingRequests,
     },
   });
