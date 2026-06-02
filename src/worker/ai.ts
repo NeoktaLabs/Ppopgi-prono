@@ -47,7 +47,7 @@ type TeamFormHistory = {
   matches: any[];
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v24";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v25";
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -160,7 +160,12 @@ class AiProviderError extends Error {
 }
 
 function safeNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
 }
 
 function apiFootballBaseUrl(env: Env) {
@@ -796,7 +801,15 @@ async function fetchHostRecentHistory(env: Env, teamId: number | null, teamName:
 }
 
 async function buildStatsSnapshot(env: Env, match: MatchRow) {
-  const teams = await fetchFixtureTeams(env, match.external_id).catch(() => null);
+  const storedTeams = {
+    home: safeNumber(match.home_team_api_id),
+    away: safeNumber(match.away_team_api_id),
+  };
+  const fetchedTeams = storedTeams.home && storedTeams.away ? null : await fetchFixtureTeams(env, match.external_id).catch(() => null);
+  const teams = {
+    home: storedTeams.home ?? fetchedTeams?.home ?? null,
+    away: storedTeams.away ?? fetchedTeams?.away ?? null,
+  };
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
   const [homeStats, awayStats, homeForm, awayForm, homeQualifierPayloads, awayQualifierPayloads, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([

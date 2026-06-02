@@ -32,6 +32,8 @@ export type User = {
 export type MatchRow = {
   id: string;
   external_id: string;
+  home_team_api_id: number | null;
+  away_team_api_id: number | null;
   home_team: string;
   away_team: string;
   home_team_logo: string | null;
