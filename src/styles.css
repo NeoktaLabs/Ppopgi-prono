@@ -423,14 +423,25 @@ body{overflow-x:hidden}
 .ai-loading{display:grid;place-items:center;min-height:9rem;border-radius:20px;background:#f4f8ff;color:#53627a;font-weight:950;text-align:center}
 .ai-cache-pill{display:inline-flex;align-items:center;margin:.25rem 0 .2rem;padding:.32rem .55rem;border-radius:999px;background:#dcfce7;color:#067647;font-size:.72rem;font-weight:950}
 .ai-summary{margin:0;color:#334155;font-weight:700;line-height:1.5}
+.ai-rationale{display:grid;gap:.35rem;margin:.9rem 0}
+.ai-rationale h4,.ai-form-section h4{margin:0;color:var(--night)}
 .ai-pick-card{display:grid;gap:.2rem;margin:1rem 0;padding:.85rem;border-radius:20px;background:linear-gradient(135deg,#061735,#102e63);color:#fff;text-align:center}
+.ai-pick-card-top{margin:.75rem 0 .75rem}
 .ai-pick-card span{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#b8c9df;font-weight:950}
 .ai-pick-card strong{font-size:1.2rem}
-.ai-bonus-card{display:grid;gap:.18rem;margin:-.35rem 0 .85rem;padding:.72rem .8rem;border-radius:18px;background:#f4f8ff;border:1px solid #dce6f3;text-align:center;color:#334155}
+.ai-bonus-card{display:grid;gap:.18rem;margin:0 0 .85rem;padding:.72rem .8rem;border-radius:18px;background:#f4f8ff;border:1px solid #dce6f3;text-align:center;color:#334155}
 .ai-bonus-card.is-on{background:linear-gradient(135deg,rgba(31,211,107,.16),rgba(255,201,71,.18));border-color:rgba(31,211,107,.34)}
 .ai-bonus-card span{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:#53627a;font-weight:950}
 .ai-bonus-card strong{color:var(--night);font-size:1rem}
 .ai-bonus-card p{margin:0;color:#53627a;font-size:.82rem;font-weight:750;line-height:1.35}
+.ai-form-section{display:grid;gap:.55rem;margin:1rem 0 .8rem}
+.ai-form-table{display:grid;gap:.4rem}
+.ai-form-row{display:grid;grid-template-columns:minmax(6.5rem,1fr) minmax(10rem,1.45fr) 4rem 4rem 4rem;align-items:center;gap:.55rem;padding:.62rem .68rem;border-radius:16px;background:#f4f8ff;border:1px solid #dce6f3;color:#334155;font-size:.82rem;font-weight:850}
+.ai-form-head{background:transparent;border:0;padding:.15rem .68rem;color:#667085;font-size:.68rem;text-transform:uppercase;letter-spacing:.08em}
+.ai-form-row strong{color:var(--night)}
+.ai-form-row span{min-width:0}
+.ai-form-row span b{display:block;color:var(--night);font-size:.92rem}
+.ai-form-row small{display:block;margin-top:.15rem;color:#667085;font-size:.68rem;line-height:1.25}
 .ai-angle-list{display:grid;gap:.45rem;margin:.75rem 0;padding:0;list-style:none}
 .ai-angle-list li{padding:.62rem .7rem;border-radius:16px;background:#f4f8ff;border:1px solid #dce6f3;color:#334155;font-weight:750;line-height:1.35}
 .ai-angle-list li::before{content:"";display:inline-block;width:.42rem;height:.42rem;margin-right:.45rem;border-radius:999px;background:var(--pitch);vertical-align:.08rem}
@@ -469,6 +480,12 @@ body{overflow-x:hidden}
   .ai-backdrop{place-items:center;padding:.75rem}
   .ai-modal{width:min(100%,24rem);max-height:88vh;border-radius:24px;padding:1rem}
   .ai-insight-button{font-size:.68rem;margin-bottom:.58rem}
+  .ai-form-row{grid-template-columns:1fr;gap:.32rem;padding:.7rem;text-align:left}
+  .ai-form-head{display:none}
+  .ai-form-row span b{font-size:1rem}
+  .ai-form-row span:nth-child(3)::before{content:"Goals: ";color:#667085}
+  .ai-form-row span:nth-child(4)::before{content:"Opp.: ";color:#667085}
+  .ai-form-row span:nth-child(5)::before{content:"Base: ";color:#667085}
 }
 
 /* Final lobby, footer, and prediction sizing polish */

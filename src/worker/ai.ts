@@ -12,6 +12,19 @@ type InsightPayload = {
   };
   confidence: "low" | "medium" | "high";
   disclaimer: string;
+  form_table?: InsightFormRow[];
+};
+
+type InsightFormRow = {
+  team: string;
+  source: string;
+  form: string;
+  last_5: string[];
+  goals_for: number;
+  goals_against: number;
+  opponent_strength: number | null;
+  adjusted_points_per_match: number | null;
+  oddzz_baseline: number;
 };
 
 type ScoreSignal = "home" | "draw" | "away" | "balanced" | "sparse" | "unavailable";
@@ -53,7 +66,7 @@ type TeamFormHistory = {
   };
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v29";
+const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v30";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
@@ -537,6 +550,61 @@ function summarizeLastThree(matches: any[], teamId: number) {
     results: [],
   });
   return summary;
+}
+
+function scoreFromCompactMatch(match: any) {
+  const home = match?.team_side === "home";
+  const away = match?.team_side === "away";
+  const homeGoals = safeNumber(match?.score?.home);
+  const awayGoals = safeNumber(match?.score?.away);
+  if ((!home && !away) || homeGoals === null || awayGoals === null) return null;
+  return {
+    for: home ? homeGoals : awayGoals,
+    against: home ? awayGoals : homeGoals,
+  };
+}
+
+function insightSourceLabel(source: string | null | undefined) {
+  if (source === "world_cup_qualifiers") return "World Cup qualifiers";
+  if (source === "host_recent_all_competitions") return "Recent official/friendly games";
+  if (source === "recent_form") return "Recent games";
+  return "No form data";
+}
+
+function buildInsightFormRow(teamName: string, history: TeamFormHistory | null, fallbackForm: any[]): InsightFormRow {
+  const matches = (history?.matches?.length ? history.matches : fallbackForm).slice(0, 5);
+  const totals = matches.reduce((acc, match: any) => {
+    const score = scoreFromCompactMatch(match);
+    if (score) {
+      acc.goals_for += score.for;
+      acc.goals_against += score.against;
+    }
+    return acc;
+  }, { goals_for: 0, goals_against: 0 });
+  const last5 = matches.map((match: any) => {
+    const score = scoreFromCompactMatch(match);
+    const result = match?.result ?? "?";
+    const opponent = match?.opponent ?? "opponent";
+    return score ? `${result} ${score.for}-${score.against} vs ${opponent}` : `${result} vs ${opponent}`;
+  });
+  return {
+    team: teamName,
+    source: insightSourceLabel(history?.source ?? (fallbackForm.length ? "recent_form" : "unavailable")),
+    form: matches.length ? matches.map((match: any) => match?.result ?? "?").join("-") : "N/A",
+    last_5: last5,
+    goals_for: totals.goals_for,
+    goals_against: totals.goals_against,
+    opponent_strength: history?.average_opponent_strength ?? null,
+    adjusted_points_per_match: history?.adjusted_points_per_match ?? null,
+    oddzz_baseline: teamStrength(teamName),
+  };
+}
+
+function buildInsightFormTable(match: MatchRow, scouting: any, homeHistory: TeamFormHistory | null, awayHistory: TeamFormHistory | null): InsightFormRow[] {
+  return [
+    buildInsightFormRow(match.home_team, homeHistory, scouting.teams?.home?.recent_form ?? []),
+    buildInsightFormRow(match.away_team, awayHistory, scouting.teams?.away?.recent_form ?? []),
+  ];
 }
 
 function compactQualifierHistory(fixturesPayloads: any[], teamId: number, teamName: string, beforeIso: string): TeamFormHistory {
@@ -1246,10 +1314,20 @@ async function buildStatsSnapshot(env: Env, match: MatchRow, options: StatsSnaps
       away: { id: teams?.away ?? null, name: match.away_team, stats: awayStats, recent_form: awayForm ?? [], world_cup_qualifiers: awayQualifierHistory, standing: awayStanding },
     },
   };
-  return { ...scouting, scouting_insights: buildScoutingInsights(match, scouting), oddzz_scorecard: buildScorecard(match, scouting) };
+  return {
+    ...scouting,
+    scouting_insights: buildScoutingInsights(match, scouting),
+    oddzz_scorecard: buildScorecard(match, scouting),
+    insight_form_table: buildInsightFormTable(match, scouting, homeQualifierHistory, awayQualifierHistory),
+  };
 }
 
-function fallbackInsight(match: MatchRow, statsSource: string, scorecard?: Scorecard): InsightPayload {
+function insightFormTable(stats: unknown): InsightFormRow[] | undefined {
+  const rows = (stats as any)?.insight_form_table;
+  return Array.isArray(rows) ? rows.slice(0, 2) : undefined;
+}
+
+function fallbackInsight(match: MatchRow, statsSource: string, scorecard?: Scorecard, stats?: unknown): InsightPayload {
   return {
     headline: `${match.home_team} vs ${match.away_team}: quick read`,
     summary: scorecard ? `OddzzAI scorecard leans toward ${scorecard.suggested_pick} with ${scorecard.confidence_level} confidence.` : `Oddzz AI can compare team stats once API keys are configured. For now, this local preview uses fixture context only, so treat it as a UI demo rather than a real forecast.`,
@@ -1264,10 +1342,11 @@ function fallbackInsight(match: MatchRow, statsSource: string, scorecard?: Score
     },
     confidence: scorecard?.confidence_level ?? "low",
     disclaimer: "AI insight for fun only. Not betting advice.",
+    form_table: insightFormTable(stats),
   };
 }
 
-function coerceInsight(value: any, match: MatchRow, scorecard?: Scorecard): InsightPayload {
+function coerceInsight(value: any, match: MatchRow, scorecard?: Scorecard, stats?: unknown): InsightPayload {
   const rawPick = String(value?.suggested_pick || "");
   const suggestedPick = /\d+\s*[-:]\s*\d+/.test(rawPick) ? rawPick : (scorecard?.suggested_pick ?? `${match.home_team} 1-1 ${match.away_team}`);
   return {
@@ -1281,12 +1360,13 @@ function coerceInsight(value: any, match: MatchRow, scorecard?: Scorecard): Insi
     },
     confidence: ["low", "medium", "high"].includes(value?.confidence) ? value.confidence : (scorecard?.confidence_level ?? "low"),
     disclaimer: String(value?.disclaimer || "AI insight for fun only. Not betting advice."),
+    form_table: insightFormTable(stats),
   };
 }
 
 async function generateInsight(env: Env, match: MatchRow, stats: unknown, language: InsightLanguage): Promise<InsightPayload> {
   const scorecard = (stats as any)?.oddzz_scorecard as Scorecard | undefined;
-  if (!env.OPENAI_API_KEY) return fallbackInsight(match, (stats as any)?.source ?? "match-context", scorecard);
+  if (!env.OPENAI_API_KEY) return fallbackInsight(match, (stats as any)?.source ?? "match-context", scorecard, stats);
   const languageInstruction = language === "fr"
     ? "Write every user-facing value in French. Keep team names unchanged. Use French football wording such as prono, score exact, nul, victoire, forme récente."
     : "Write every user-facing value in English. Keep team names unchanged.";
@@ -1309,10 +1389,10 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "World Cup fixtures are neutral-tournament fixtures unless the stats explicitly say otherwise. The JSON fields home and away are fixture labels only; never infer home advantage, home-team win, or home crowd advantage from them.",
             "You may mention tournament_context when present: USA, Canada and Mexico get a small host/travel context edge, and North/South American teams may get a smaller regional travel/context edge. Describe this as regional context, never as home advantage unless the team is actually a host playing in its host country.",
             "The stats JSON contains oddzz_scorecard. Treat this scorecard as the primary recommendation produced by Oddzz's deterministic engine. Explain it clearly; do not override its suggested_pick unless the provided raw datasets strongly contradict it.",
-            "The stats JSON also contains scouting_insights. Use scouting_insights as the main source for user-facing bullets: last 3 results, goals scored, goals conceded, adjusted points per match, average opponent strength, and injury watch.",
+            "The stats JSON also contains scouting_insights and insight_form_table. Use them as the main source for the rationale paragraph: recent results, goals scored, goals conceded, adjusted points per match, average opponent strength, baseline strength, and injury watch.",
             "When scouting_insights.historical_match_details contains cached past fixture statistics, events, or lineups, use them to add concrete context such as shots, corners, cards, goals/events, formations, and notable starters. Do not invent those details when missing.",
             "When writing form bullets, use scouting_insights.form_comparison.home.source_label and scouting_insights.form_comparison.away.source_label. If a team source is host_recent_all_competitions or recent_form, do not describe that data as World Cup qualifiers.",
-            "The angles array should be concrete and numerical where possible. Prefer bullets like 'Portugal last 3 qualifiers: W-W-D, 7 scored, 2 conceded, avg opponent strength 71.3' over generic statements like 'Portugal is stronger'.",
+            "The angles array is kept only for backward compatibility and can be short. Do not rely on it for the final UI.",
             "When injuries are available, mention key absences by player/team/reason. If injury data is unavailable, say 'No fixture injury list available yet' only if useful; do not overstate it.",
             "Consider the available datasets in this order: market_odds, provider_prediction, world_cup_qualifiers, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
             "World Cup qualifier history is an important national-team signal. Oddzz adjusts this signal by confederation strength, so continents are not treated as perfectly equal.",
@@ -1325,6 +1405,7 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "The suggested_pick must be an exact scoreline in the format 'Team A 1-1 Team B', not just a winner.",
             "Prefer oddzz_scorecard.suggested_pick for suggested_pick. Bonus recommendation should normally follow oddzz_scorecard.bonus_recommended.",
             "Also recommend whether OddzzAI should use one of its two x5 bonuses. It can only use bonuses on group-stage matches, and only when confidence is high enough to justify the risk.",
+            "Write summary as one clean rationale paragraph explaining why the suggested pick and bonus call make sense. Do not format it as bullets.",
             "Keep the answer concise and useful for a prediction game.",
             languageInstruction,
             "Return strict JSON with keys: headline, summary, angles, suggested_pick, bonus_recommendation, confidence, disclaimer. bonus_recommendation must be an object with boolean use_bonus and string reason.",
@@ -1346,7 +1427,7 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
     throw new AiProviderError(message, response.status === 429 ? 503 : response.status);
   }
   const payload = await response.json() as any;
-  return coerceInsight(JSON.parse(payload.choices?.[0]?.message?.content ?? "{}"), match, scorecard);
+  return coerceInsight(JSON.parse(payload.choices?.[0]?.message?.content ?? "{}"), match, scorecard, stats);
 }
 
 export async function fixtureAiInsight(request: Request, env: Env, matchId: string) {
