@@ -24,7 +24,7 @@ type PredictionRow = {
 };
 
 function isLiveStatus(status: string) {
-  return ["live", "in_play", "1h", "2h", "ht", "et", "penalties", "extra_time"].includes(status.toLowerCase());
+  return ["live", "in_play", "1h", "2h", "ht", "et", "bt", "p", "penalties", "extra_time"].includes(status.toLowerCase());
 }
 
 function withCorrectMultiplier(match: MatchRow): MatchRow {
@@ -49,7 +49,7 @@ async function officialLeaderboard(env: Env, leagueId: string): Promise<Leaderbo
       COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores,
       COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results,
       COUNT(global_predictions.match_id) as predictions_count,
-      MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') OR matches.kickoff_at <= datetime('now') OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
+      MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time') OR matches.kickoff_at <= datetime('now') OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
     FROM league_members
     JOIN users ON users.id = league_members.user_id
     LEFT JOIN global_predictions ON global_predictions.user_id = users.id
@@ -71,7 +71,7 @@ async function officialLeaderboard(env: Env, leagueId: string): Promise<Leaderbo
 async function liveMatches(env: Env): Promise<MatchRow[]> {
   const rows = await env.DB.prepare(`
     SELECT * FROM matches
-    WHERE status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time')
+    WHERE status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time')
     ORDER BY kickoff_at ASC
   `).all<MatchRow>();
   return (rows.results ?? []).map(withCorrectMultiplier);
@@ -222,7 +222,7 @@ export async function leagueHome(request: Request, env: Env, leagueId: string) {
   const todayRows = await env.DB.prepare(`
     SELECT * FROM matches
     WHERE (kickoff_at >= ? AND kickoff_at < ?)
-      OR status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time')
+      OR status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time')
     ORDER BY kickoff_at ASC
   `).bind(todayStart.toISOString(), todayEnd.toISOString()).all<MatchRow>();
 

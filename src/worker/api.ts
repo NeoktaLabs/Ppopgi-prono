@@ -103,7 +103,7 @@ export async function leaderboard(request: Request, env: Env, leagueId: string) 
       FROM predictions
       GROUP BY user_id, match_id
     )
-    SELECT users.id, users.nickname, COALESCE(SUM(global_predictions.points), 0) as points, COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores, COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results, COUNT(global_predictions.match_id) as predictions_count, MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
+    SELECT users.id, users.nickname, COALESCE(SUM(global_predictions.points), 0) as points, COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores, COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results, COUNT(global_predictions.match_id) as predictions_count, MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
     FROM league_members
     JOIN users ON users.id = league_members.user_id
     LEFT JOIN global_predictions ON global_predictions.user_id = users.id
@@ -142,7 +142,7 @@ async function repairMatchMultipliers(env: Env, rows: MatchRow[]) {
 }
 
 function matchLocksPredictions(match: MatchRow) {
-  return ["live", "in_play", "1h", "2h", "ht", "et", "penalties", "extra_time"].includes(match.status.toLowerCase()) || Date.now() >= new Date(match.kickoff_at).getTime() || usableFinalScore(match) !== null;
+  return ["live", "in_play", "1h", "2h", "ht", "et", "bt", "p", "penalties", "extra_time"].includes(match.status.toLowerCase()) || Date.now() >= new Date(match.kickoff_at).getTime() || usableFinalScore(match) !== null;
 }
 
 export async function listMatches(env: Env) {
@@ -227,7 +227,7 @@ export async function globalLeaderboard(request: Request, env: Env) {
       FROM predictions
       GROUP BY user_id, match_id
     )
-    SELECT users.id as user_id, users.nickname, COALESCE(SUM(global_predictions.points), 0) as points, COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores, COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results, COUNT(global_predictions.match_id) as predictions_count, MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
+    SELECT users.id as user_id, users.nickname, COALESCE(SUM(global_predictions.points), 0) as points, COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores, COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results, COUNT(global_predictions.match_id) as predictions_count, MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
     FROM users
     LEFT JOIN global_predictions ON global_predictions.user_id = users.id
     LEFT JOIN matches ON matches.id = global_predictions.match_id
@@ -260,11 +260,11 @@ export async function globalUserPredictions(request: Request, env: Env, userId: 
     SELECT matches.id as match_id, matches.external_id, matches.home_team, matches.away_team, matches.home_team_logo, matches.away_team_logo, matches.kickoff_at, matches.stage, matches.group_name, matches.status, matches.final_home, matches.final_away, matches.score_90_home, matches.score_90_away, matches.score_120_home, matches.score_120_away, matches.manual_final_home, matches.manual_final_away, matches.score_source, matches.live_home_score, matches.live_away_score, matches.live_minute, matches.points_multiplier, global_predictions.home_score, global_predictions.away_score, global_predictions.points, global_predictions.bonus_used
     FROM matches
     JOIN global_predictions ON global_predictions.match_id = matches.id
-    WHERE matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL
+    WHERE matches.status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL
     ORDER BY matches.kickoff_at DESC
   `).bind(userId, nowIso()).all<MatchRow & { match_id: string; home_score: number; away_score: number; points: number | null; bonus_used: number | null }>();
   return json({ predictions: (rows.results ?? []).map((row) => {
-    const isLive = ["live", "in_play", "1h", "2h", "ht", "et", "penalties", "extra_time"].includes(row.status.toLowerCase());
+    const isLive = ["live", "in_play", "1h", "2h", "ht", "et", "bt", "p", "penalties", "extra_time"].includes(row.status.toLowerCase());
     const score = isLive && row.live_home_score !== null && row.live_away_score !== null
       ? { home: row.live_home_score, away: row.live_away_score }
       : null;

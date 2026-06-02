@@ -53,7 +53,7 @@ async function shouldCallProvider(env: Env) {
   const now = new Date();
   const latestSyncAt = await latestSuccessfulSync(env);
   const minutesSinceSync = latestSyncAt ? (Date.now() - latestSyncAt) / 60_000 : Infinity;
-  const live = await env.DB.prepare(`SELECT id FROM matches WHERE status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time') LIMIT 1`).first();
+  const live = await env.DB.prepare(`SELECT id FROM matches WHERE status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time') LIMIT 1`).first();
   if (live) return minutesSinceSync >= 1;
   const imminent = new Date(now.getTime() + 15 * 60_000);
   const upcomingVerySoon = await env.DB.prepare(`SELECT id FROM matches WHERE kickoff_at >= ? AND kickoff_at <= ? AND status NOT IN ('finished', 'FINISHED', 'cancelled', 'postponed') LIMIT 1`).bind(now.toISOString(), imminent.toISOString()).first();
@@ -140,7 +140,7 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
     const score = item.score ?? {};
     const status = normalizeStatus(fixture.status?.short, fixture.status?.long);
     const elapsed = typeof fixture.status?.elapsed === "number" ? fixture.status.elapsed : null;
-    const isLive = ["1H", "2H", "HT", "ET", "BT", "penalties", "LIVE"].includes(status);
+    const isLive = ["1H", "2H", "HT", "ET", "BT", "P", "penalties", "LIVE"].includes(status);
     return {
       externalId: String(fixture.id),
       homeTeamApiId: safeNumber(teams.home?.id),

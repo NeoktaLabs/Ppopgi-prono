@@ -25,7 +25,7 @@ type AiInsightRow = MatchRow & {
 };
 
 function isLiveStatus(status: string) {
-  return ["live", "in_play", "1h", "2h", "ht", "et", "penalties", "extra_time"].includes(status.toLowerCase());
+  return ["live", "in_play", "1h", "2h", "ht", "et", "bt", "p", "penalties", "extra_time"].includes(status.toLowerCase());
 }
 
 export function parseAiScoreline(value: unknown) {
@@ -132,7 +132,7 @@ export async function oddzzAiVisiblePredictions(env: Env) {
     SELECT matches.*, insights.insight_json, insights.created_at as insight_created_at
     FROM matches
     JOIN ai_fixture_insights insights ON insights.match_id = matches.id
-    WHERE matches.status IN ('live', 'in_play', '1H', '2H', 'HT', 'ET', 'penalties', 'extra_time')
+    WHERE matches.status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time')
       OR matches.kickoff_at <= datetime('now')
       OR matches.final_home IS NOT NULL
       OR matches.manual_final_home IS NOT NULL
