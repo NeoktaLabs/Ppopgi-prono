@@ -54,6 +54,7 @@ type TeamFormHistory = {
 };
 
 const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v26";
+const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 type InsightLanguage = "en" | "fr";
 
 const WORLD_CUP_2026_QUALIFIER_COMPETITIONS = [
@@ -178,12 +179,25 @@ function apiFootballBaseUrl(env: Env) {
   return env.FOOTBALL_API_BASE_URL || "https://v3.football.api-sports.io";
 }
 
-async function fetchApiFootball<T = any>(env: Env, path: string, params: Record<string, string | number | null | undefined>) {
-  if (!env.FOOTBALL_API_KEY) return null;
-  const url = new URL(`${apiFootballBaseUrl(env)}${path}`);
+function normalizedParams(params: Record<string, string | number | null | undefined>) {
+  return Object.fromEntries(
+    Object.entries(params)
+      .filter(([, value]) => value != null && value !== "")
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => [key, String(value)]),
+  );
+}
+
+function addParams(url: URL, params: Record<string, string | number | null | undefined>) {
   for (const [key, value] of Object.entries(params)) {
     if (value != null && value !== "") url.searchParams.set(key, String(value));
   }
+}
+
+async function fetchApiFootballFromProvider<T = any>(env: Env, path: string, params: Record<string, string | number | null | undefined>) {
+  if (!env.FOOTBALL_API_KEY) return null;
+  const url = new URL(`${apiFootballBaseUrl(env)}${path}`);
+  addParams(url, params);
   const response = await fetch(url.toString(), {
     headers: { "x-apisports-key": env.FOOTBALL_API_KEY },
   });
@@ -191,12 +205,137 @@ async function fetchApiFootball<T = any>(env: Env, path: string, params: Record<
   return response.json() as Promise<T>;
 }
 
+async function readCachedApiFootball<T = any>(env: Env, cacheKey: string) {
+  try {
+    const cached = await env.DB.prepare(`
+      SELECT payload_json FROM ai_football_dataset_cache
+      WHERE cache_key = ? AND expires_at > ?
+      LIMIT 1
+    `).bind(cacheKey, nowIso()).first<{ payload_json: string }>();
+    return cached ? JSON.parse(cached.payload_json) as T : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractCacheDimensions(path: string, params: Record<string, string | number | null | undefined>) {
+  const team = safeNumber(params.team);
+  const fixture = safeNumber(params.fixture ?? params.id);
+  const league = safeNumber(params.league);
+  const season = safeNumber(params.season);
+  return { team, fixture, league, season };
+}
+
+async function persistApiFootballDataset(env: Env, cacheKey: string, path: string, params: Record<string, string | number | null | undefined>, payload: any, ttlSeconds: number) {
+  const now = nowIso();
+  const expires = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+  const cleanParams = normalizedParams(params);
+  const dimensions = extractCacheDimensions(path, params);
+  const payloadJson = JSON.stringify(payload);
+  try {
+    await env.DB.prepare(`
+      INSERT INTO ai_football_dataset_cache (cache_key, endpoint, params_json, team_api_id, fixture_api_id, league_id, season, payload_json, fetched_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(cache_key) DO UPDATE SET
+        payload_json = excluded.payload_json,
+        fetched_at = excluded.fetched_at,
+        expires_at = excluded.expires_at,
+        team_api_id = excluded.team_api_id,
+        fixture_api_id = excluded.fixture_api_id,
+        league_id = excluded.league_id,
+        season = excluded.season
+    `).bind(cacheKey, path, JSON.stringify(cleanParams), dimensions.team, dimensions.fixture, dimensions.league, dimensions.season, payloadJson, now, expires).run();
+
+    if (path === "/fixtures" && Array.isArray(payload?.response)) {
+      for (const item of payload.response) {
+        const fixtureId = safeNumber(item?.fixture?.id);
+        if (!fixtureId) continue;
+        const homeId = safeNumber(item?.teams?.home?.id);
+        const awayId = safeNumber(item?.teams?.away?.id);
+        if (homeId) {
+          await env.DB.prepare(`
+            INSERT INTO ai_football_teams (api_team_id, name, logo, country, last_seen_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(api_team_id) DO UPDATE SET name = excluded.name, logo = excluded.logo, country = excluded.country, last_seen_at = excluded.last_seen_at
+          `).bind(homeId, item?.teams?.home?.name ?? `Team ${homeId}`, item?.teams?.home?.logo ?? null, item?.league?.country ?? null, now).run();
+        }
+        if (awayId) {
+          await env.DB.prepare(`
+            INSERT INTO ai_football_teams (api_team_id, name, logo, country, last_seen_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(api_team_id) DO UPDATE SET name = excluded.name, logo = excluded.logo, country = excluded.country, last_seen_at = excluded.last_seen_at
+          `).bind(awayId, item?.teams?.away?.name ?? `Team ${awayId}`, item?.teams?.away?.logo ?? null, item?.league?.country ?? null, now).run();
+        }
+        await env.DB.prepare(`
+          INSERT INTO ai_football_fixtures (
+            api_fixture_id, league_id, league_name, league_season, league_round, kickoff_at, status_short, status_long,
+            home_team_api_id, away_team_api_id, home_goals, away_goals, payload_json, source_endpoint, source_params_json, last_seen_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(api_fixture_id) DO UPDATE SET
+            league_id = excluded.league_id,
+            league_name = excluded.league_name,
+            league_season = excluded.league_season,
+            league_round = excluded.league_round,
+            kickoff_at = excluded.kickoff_at,
+            status_short = excluded.status_short,
+            status_long = excluded.status_long,
+            home_team_api_id = excluded.home_team_api_id,
+            away_team_api_id = excluded.away_team_api_id,
+            home_goals = excluded.home_goals,
+            away_goals = excluded.away_goals,
+            payload_json = excluded.payload_json,
+            source_endpoint = excluded.source_endpoint,
+            source_params_json = excluded.source_params_json,
+            last_seen_at = excluded.last_seen_at
+        `).bind(
+          fixtureId,
+          safeNumber(item?.league?.id),
+          item?.league?.name ?? null,
+          safeNumber(item?.league?.season),
+          item?.league?.round ?? null,
+          item?.fixture?.date ?? null,
+          item?.fixture?.status?.short ?? null,
+          item?.fixture?.status?.long ?? null,
+          homeId,
+          awayId,
+          safeNumber(item?.goals?.home ?? item?.score?.fulltime?.home),
+          safeNumber(item?.goals?.away ?? item?.score?.fulltime?.away),
+          JSON.stringify(item),
+          path,
+          JSON.stringify(cleanParams),
+          now,
+        ).run();
+      }
+    }
+  } catch {
+    // The AI should keep working before the cache migration is applied.
+  }
+}
+
+async function fetchApiFootball<T = any>(
+  env: Env,
+  path: string,
+  params: Record<string, string | number | null | undefined>,
+  options: { ttlSeconds?: number; bypassCache?: boolean } = {},
+) {
+  if (!env.FOOTBALL_API_KEY) return null;
+  const ttlSeconds = options.ttlSeconds ?? AI_DATASET_CACHE_TTL_SECONDS;
+  const cleanParams = normalizedParams(params);
+  const cacheKey = await sha256(JSON.stringify({ provider: "api-football", path, params: cleanParams }));
+  if (!options.bypassCache) {
+    const cached = await readCachedApiFootball<T>(env, cacheKey);
+    if (cached) return cached;
+  }
+  const payload = await fetchApiFootballFromProvider<T>(env, path, cleanParams);
+  if (payload) await persistApiFootballDataset(env, cacheKey, path, cleanParams, payload, ttlSeconds);
+  return payload;
+}
+
 async function debugFetchApiFootball(env: Env, path: string, params: Record<string, string | number | null | undefined>) {
   if (!env.FOOTBALL_API_KEY) return { ok: false, status: null, response_count: 0, error: "FOOTBALL_API_KEY is not configured." };
   const url = new URL(`${apiFootballBaseUrl(env)}${path}`);
-  for (const [key, value] of Object.entries(params)) {
-    if (value != null && value !== "") url.searchParams.set(key, String(value));
-  }
+  addParams(url, params);
   const response = await fetch(url.toString(), {
     headers: { "x-apisports-key": env.FOOTBALL_API_KEY },
   });
@@ -826,14 +965,34 @@ async function fetchTeamStats(env: Env, teamId: number | null) {
 }
 
 async function fetchTeamWorldCupQualifierPayloads(env: Env, teamId: number | null) {
-  if (!env.FOOTBALL_API_KEY || !teamId) return [];
+  if (!teamId) return [];
   return Promise.all(WORLD_CUP_2026_QUALIFIER_COMPETITIONS.map((competition) => (
-    fetchApiFootball(env, "/fixtures", {
-      league: competition.league,
-      season: competition.season,
-      team: teamId,
-    }).catch(() => null)
+    env.FOOTBALL_API_KEY
+      ? fetchApiFootball(env, "/fixtures", {
+        league: competition.league,
+        season: competition.season,
+        team: teamId,
+      })
+        .then((payload) => payload ?? readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season))
+        .catch(() => readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season))
+      : readStoredTeamQualifierPayload(env, teamId, competition.league, competition.season)
   )));
+}
+
+async function readStoredTeamQualifierPayload(env: Env, teamId: number, league: number, season: number) {
+  try {
+    const rows = await env.DB.prepare(`
+      SELECT payload_json FROM ai_football_fixtures
+      WHERE league_id = ?
+        AND league_season = ?
+        AND (home_team_api_id = ? OR away_team_api_id = ?)
+      ORDER BY kickoff_at DESC
+      LIMIT 40
+    `).bind(league, season, teamId, teamId).all<{ payload_json: string }>();
+    return { response: (rows.results ?? []).map((row) => JSON.parse(row.payload_json)) };
+  } catch {
+    return null;
+  }
 }
 
 function qualifierEndpointSummary(payloads: any[]) {
@@ -1052,14 +1211,16 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
 }
 
 async function latestCachedInsight(env: Env, matchId: string, language: InsightLanguage, kickoffAt: string) {
+  const freshAfter = new Date(Date.now() - AI_DATASET_CACHE_TTL_SECONDS * 1000).toISOString();
   return env.DB.prepare(`
     SELECT insight_json, updated_at, stats_json FROM ai_fixture_insights
     WHERE match_id = ?
       AND json_extract(stats_json, '$.prompt_version') = ?
       AND json_extract(stats_json, '$.language') = ?
       AND created_at <= ?
+      AND updated_at >= ?
     ORDER BY updated_at DESC LIMIT 1
-  `).bind(matchId, INSIGHT_PROMPT_VERSION, language, kickoffAt).first<{ insight_json: string; updated_at: string; stats_json: string }>();
+  `).bind(matchId, INSIGHT_PROMPT_VERSION, language, kickoffAt, freshAfter).first<{ insight_json: string; updated_at: string; stats_json: string }>();
 }
 
 async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, language: InsightLanguage, stats: Awaited<ReturnType<typeof buildStatsSnapshot>>) {
@@ -1121,6 +1282,86 @@ export async function scheduledAiInsightRefresh(env: Env) {
     await cachedOrGenerateInsightFromStats(env, match, "en", stats).catch(() => null);
     await cachedOrGenerateInsightFromStats(env, match, "fr", stats).catch(() => null);
   }
+}
+
+function uniqueNumbers(values: Array<number | null | undefined>) {
+  return [...new Set(values.filter((value): value is number => typeof value === "number" && Number.isFinite(value)))];
+}
+
+export async function hydrateAiFootballData(request: Request, env: Env) {
+  if (!env.FOOTBALL_API_KEY) return badRequest("FOOTBALL_API_KEY is not configured.", 503);
+  const url = new URL(request.url);
+  const teamOffset = Math.max(0, Number(url.searchParams.get("teamOffset") ?? 0) || 0);
+  const teamLimit = Math.min(12, Math.max(1, Number(url.searchParams.get("teamLimit") ?? 3) || 3));
+  const fixtureOffset = Math.max(0, Number(url.searchParams.get("fixtureOffset") ?? 0) || 0);
+  const fixtureLimit = Math.min(20, Math.max(1, Number(url.searchParams.get("fixtureLimit") ?? 5) || 5));
+  const league = env.FOOTBALL_API_LEAGUE_ID || "1";
+  const season = env.FOOTBALL_API_SEASON || "2026";
+  const worldCupPayload = await fetchApiFootball(env, "/fixtures", { league, season }, { bypassCache: true }).catch(() => null) as { response?: any[] } | null;
+  const rows = Array.isArray(worldCupPayload?.response) ? worldCupPayload.response : [];
+  const teamIds = uniqueNumbers(rows.flatMap((fixture: any) => [
+    safeNumber(fixture?.teams?.home?.id),
+    safeNumber(fixture?.teams?.away?.id),
+  ]));
+  const selectedTeamIds = teamIds.slice(teamOffset, teamOffset + teamLimit);
+  const selectedFixtures = rows.slice(fixtureOffset, fixtureOffset + fixtureLimit);
+
+  let qualifierRequests = 0;
+  let recentRequests = 0;
+  let statsRequests = 0;
+  let standingsRequests = 0;
+  for (const teamId of selectedTeamIds) {
+    await fetchTeamWorldCupQualifierPayloads(env, teamId);
+    qualifierRequests += WORLD_CUP_2026_QUALIFIER_COMPETITIONS.length;
+    await fetchApiFootball(env, "/fixtures", { team: teamId, last: 10 }, { bypassCache: true }).catch(() => null);
+    recentRequests += 1;
+    await fetchApiFootball(env, "/teams/statistics", { league, season, team: teamId }, { bypassCache: true }).catch(() => null);
+    statsRequests += 1;
+    await fetchApiFootball(env, "/standings", { league, season, team: teamId }, { bypassCache: true }).catch(() => null);
+    standingsRequests += 1;
+  }
+
+  let fixtureScoutingRequests = 0;
+  for (const fixture of selectedFixtures) {
+    const fixtureId = safeNumber(fixture?.fixture?.id);
+    const homeId = safeNumber(fixture?.teams?.home?.id);
+    const awayId = safeNumber(fixture?.teams?.away?.id);
+    if (!fixtureId) continue;
+    await fetchApiFootball(env, "/predictions", { fixture: fixtureId }, { bypassCache: true }).catch(() => null);
+    await fetchApiFootball(env, "/injuries", { fixture: fixtureId }, { bypassCache: true }).catch(() => null);
+    await fetchApiFootball(env, "/odds", { fixture: fixtureId }, { bypassCache: true }).catch(() => null);
+    fixtureScoutingRequests += 3;
+    if (homeId && awayId) {
+      await fetchApiFootball(env, "/fixtures/headtohead", { h2h: `${homeId}-${awayId}`, last: 10 }, { bypassCache: true }).catch(() => null);
+      fixtureScoutingRequests += 1;
+    }
+  }
+
+  return json({
+    ok: true,
+    world_cup_fixtures: rows.length,
+    teams: teamIds.length,
+    processed: {
+      team_offset: teamOffset,
+      team_limit: teamLimit,
+      teams: selectedTeamIds.length,
+      fixture_offset: fixtureOffset,
+      fixture_limit: fixtureLimit,
+      fixtures: selectedFixtures.length,
+    },
+    next: {
+      team_offset: teamOffset + selectedTeamIds.length < teamIds.length ? teamOffset + selectedTeamIds.length : null,
+      fixture_offset: fixtureOffset + selectedFixtures.length < rows.length ? fixtureOffset + selectedFixtures.length : null,
+    },
+    provider_requests_attempted: {
+      world_cup_fixtures: 1,
+      qualifiers: qualifierRequests,
+      recent_form: recentRequests,
+      team_statistics: statsRequests,
+      standings: standingsRequests,
+      fixture_scouting: fixtureScoutingRequests,
+    },
+  });
 }
 
 export async function debugAiFixtureData(env: Env, matchId: string) {

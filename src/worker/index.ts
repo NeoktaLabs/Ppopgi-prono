@@ -33,7 +33,7 @@ import {
 } from "./global-admin";
 import { leagueHome } from "./live";
 import { scheduledSync, syncWorldCupMatches } from "./sync";
-import { debugAiFixtureData, fixtureAiInsight, scheduledAiInsightRefresh } from "./ai";
+import { debugAiFixtureData, fixtureAiInsight, hydrateAiFootballData, scheduledAiInsightRefresh } from "./ai";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -94,6 +94,12 @@ async function handleApi(request: Request, env: Env) {
     const admin = await requireGlobalAdmin(request, env);
     if (admin.error) return admin.error;
     return debugAiFixtureData(env, aiDebugParams[0]);
+  }
+
+  if (request.method === "POST" && pathname === "/api/admin/ai/hydrate") {
+    const admin = await requireGlobalAdmin(request, env);
+    if (admin.error) return admin.error;
+    return hydrateAiFootballData(request, env);
   }
 
   const removeMemberParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/members\/([^/]+)$/);
