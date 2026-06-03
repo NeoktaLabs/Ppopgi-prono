@@ -42,6 +42,7 @@ import {
   scheduledAiInsightRefresh,
   startAiFootballRefreshJob,
 } from "./ai";
+import { sendDigestPreviewEmail } from "./digest-email";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -102,6 +103,12 @@ async function handleApi(request: Request, env: Env) {
     const admin = await requireGlobalAdmin(request, env);
     if (admin.error) return admin.error;
     return debugAiFixtureData(env, aiDebugParams[0]);
+  }
+
+  if (request.method === "POST" && pathname === "/api/admin/test/digest-email") {
+    const admin = await requireGlobalAdmin(request, env);
+    if (admin.error) return admin.error;
+    return sendDigestPreviewEmail(request, env);
   }
 
   if (request.method === "POST" && pathname === "/api/admin/ai/hydrate") {
