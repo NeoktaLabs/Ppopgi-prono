@@ -39,9 +39,9 @@
     "FOOTBALL_API_SEASON": "2026",
     "OPENAI_MODEL": "gpt-4.1-mini",
     "GLOBAL_ADMIN_EMAILS": "labs@neokta.com",
-    "EMAIL_FROM": "do-not-reply@oddzz.xyz",
+    "EMAIL_FROM": "do-not-reply@send.oddzz.xyz",
     "EMAIL_FROM_NAME": "Oddzz Auth",
-    "EMAIL_REPLY_TO": "do-not-reply@oddzz.xyz",
+    "EMAIL_REPLY_TO": "do-not-reply@send.oddzz.xyz",
     "TURNSTILE_SITE_KEY": "0x4AAAAAADXGbNGDwM2GQXFb",
     "DEV_AUTH_BYPASS": "0"
   }
