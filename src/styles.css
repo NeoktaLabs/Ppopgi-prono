@@ -424,7 +424,19 @@ body{overflow-x:hidden}
 .ai-cache-pill{display:inline-flex;align-items:center;margin:.25rem 0 .2rem;padding:.32rem .55rem;border-radius:999px;background:#dcfce7;color:#067647;font-size:.72rem;font-weight:950}
 .ai-summary{margin:0;color:#334155;font-weight:700;line-height:1.5}
 .ai-rationale{display:grid;gap:.35rem;margin:.9rem 0}
-.ai-rationale h4,.ai-form-section h4{margin:0;color:var(--night)}
+.ai-rationale h4,.ai-form-section h4,.ai-odds-section h4{margin:0;color:var(--night)}
+.ai-odds-section{display:grid;gap:.65rem;margin:1rem 0;padding:.8rem;border-radius:20px;background:linear-gradient(135deg,rgba(255,201,71,.16),rgba(31,211,107,.1),#f4f8ff);border:1px solid #dce6f3}
+.ai-odds-title{display:flex;align-items:center;justify-content:space-between;gap:.75rem}
+.ai-odds-title span{padding:.22rem .45rem;border-radius:999px;background:#fff;color:#53627a;font-size:.68rem;font-weight:950;white-space:nowrap}
+.ai-odds-results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.4rem}
+.ai-odds-results div{display:grid;gap:.15rem;place-items:center;min-width:0;padding:.55rem .35rem;border-radius:14px;background:rgba(255,255,255,.82);border:1px solid rgba(220,230,243,.9);text-align:center}
+.ai-odds-results span{max-width:100%;overflow:hidden;text-overflow:ellipsis;color:#53627a;font-size:.68rem;font-weight:850;white-space:nowrap}
+.ai-odds-results strong{color:var(--night);font-size:1.05rem}
+.ai-odds-goals{display:flex;align-items:center;justify-content:center;gap:.4rem;flex-wrap:wrap}
+.ai-odds-goals span,.ai-odds-scores strong{padding:.3rem .48rem;border-radius:999px;background:#fff;color:#53627a;font-size:.7rem;font-weight:800}
+.ai-odds-goals strong{color:var(--night)}
+.ai-odds-scores{display:flex;align-items:center;justify-content:center;gap:.35rem;flex-wrap:wrap;color:#53627a;font-size:.7rem;font-weight:850}
+.ai-odds-scores strong{color:var(--night)}
 .ai-pick-card{display:grid;gap:.2rem;margin:1rem 0;padding:.85rem;border-radius:20px;background:linear-gradient(135deg,#061735,#102e63);color:#fff;text-align:center}
 .ai-pick-card-top{margin:.75rem 0 .75rem}
 .ai-pick-card span{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#b8c9df;font-weight:950}

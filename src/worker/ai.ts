@@ -13,6 +13,24 @@ type InsightPayload = {
   confidence: "low" | "medium" | "high";
   disclaimer: string;
   form_table?: InsightFormRow[];
+  odds_summary?: OddsSummary;
+};
+
+type OddsSummary = {
+  bookmakers_count: number;
+  result: {
+    home_probability: number | null;
+    draw_probability: number | null;
+    away_probability: number | null;
+    favorite: "home" | "draw" | "away" | null;
+  };
+  goals: {
+    over_2_5_probability: number | null;
+    under_2_5_probability: number | null;
+    both_teams_score_yes_probability: number | null;
+    expected_range: string | null;
+  };
+  likely_scores: Array<{ score: string; average_odd: number; bookmakers: number }>;
 };
 
 type InsightFormRow = {
@@ -66,7 +84,7 @@ type TeamFormHistory = {
   };
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-02-scorecard-v30";
+const INSIGHT_PROMPT_VERSION = "2026-06-04-scorecard-v33-market-consensus";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
@@ -777,24 +795,109 @@ function compactInjuries(payload: any) {
   })).filter((item: any) => item.player || item.team || item.reason);
 }
 
+function average(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function roundedProbability(value: number | null) {
+  return value === null ? null : Number((value * 100).toFixed(1));
+}
+
+function normalizedProbabilities(values: Array<{ key: string; odd: number }>) {
+  const implied = values.map((value) => ({ key: value.key, probability: 1 / value.odd }));
+  const total = implied.reduce((sum, value) => sum + value.probability, 0);
+  return total > 0 ? implied.map((value) => ({ ...value, probability: value.probability / total })) : [];
+}
+
 function compactOdds(payload: any) {
   const rows = Array.isArray(payload?.response) ? payload.response : [];
-  const bookmaker = rows[0]?.bookmakers?.[0];
-  if (!bookmaker) return null;
-  const bets = Array.isArray(bookmaker.bets) ? bookmaker.bets : [];
-  const interestingMarkets = new Set(["Match Winner", "Home/Away", "Goals Over/Under", "Both Teams Score", "Double Chance"]);
+  const bookmakers = rows.flatMap((row: any) => Array.isArray(row?.bookmakers) ? row.bookmakers : []);
+  if (!bookmakers.length) return null;
+  const resultProbabilities = { home: [] as number[], draw: [] as number[], away: [] as number[] };
+  const over25: number[] = [];
+  const under25: number[] = [];
+  const bttsYes: number[] = [];
+  const exactScores = new Map<string, number[]>();
+
+  for (const bookmaker of bookmakers) {
+    const bets = Array.isArray(bookmaker?.bets) ? bookmaker.bets : [];
+    const winner = bets.find((bet: any) => bet?.name === "Match Winner");
+    const winnerValues = Array.isArray(winner?.values) ? winner.values : [];
+    const winnerOdds = winnerValues.map((value: any) => ({
+      key: String(value?.value ?? "").toLowerCase(),
+      odd: safeNumber(value?.odd),
+    })).filter((value: any): value is { key: string; odd: number } => ["home", "draw", "away"].includes(value.key) && value.odd !== null && value.odd > 1);
+    if (winnerOdds.length === 3) {
+      for (const value of normalizedProbabilities(winnerOdds)) {
+        resultProbabilities[value.key as "home" | "draw" | "away"].push(value.probability);
+      }
+    }
+
+    const goals = bets.find((bet: any) => bet?.name === "Goals Over/Under");
+    const goalValues = Array.isArray(goals?.values) ? goals.values : [];
+    const goal25 = goalValues.map((value: any) => ({
+      key: String(value?.value ?? "").toLowerCase(),
+      odd: safeNumber(value?.odd),
+    })).filter((value: any): value is { key: string; odd: number } => ["over 2.5", "under 2.5"].includes(value.key) && value.odd !== null && value.odd > 1);
+    if (goal25.length === 2) {
+      for (const value of normalizedProbabilities(goal25)) {
+        (value.key === "over 2.5" ? over25 : under25).push(value.probability);
+      }
+    }
+
+    const bothTeams = bets.find((bet: any) => bet?.name === "Both Teams Score");
+    const bothTeamsValues = Array.isArray(bothTeams?.values) ? bothTeams.values : [];
+    const btts = bothTeamsValues.map((value: any) => ({
+      key: String(value?.value ?? "").toLowerCase(),
+      odd: safeNumber(value?.odd),
+    })).filter((value: any): value is { key: string; odd: number } => ["yes", "no"].includes(value.key) && value.odd !== null && value.odd > 1);
+    if (btts.length === 2) {
+      const yes = normalizedProbabilities(btts).find((value) => value.key === "yes");
+      if (yes) bttsYes.push(yes.probability);
+    }
+
+    const exact = bets.find((bet: any) => bet?.name === "Exact Score");
+    for (const value of Array.isArray(exact?.values) ? exact.values : []) {
+      const score = String(value?.value ?? "").trim();
+      const odd = safeNumber(value?.odd);
+      if (!/^\d+:\d+$/.test(score) || odd === null || odd <= 1) continue;
+      exactScores.set(score, [...(exactScores.get(score) ?? []), odd]);
+    }
+  }
+
+  const home = average(resultProbabilities.home);
+  const draw = average(resultProbabilities.draw);
+  const away = average(resultProbabilities.away);
+  const resultRanking = ([
+    ["home", home ?? -1],
+    ["draw", draw ?? -1],
+    ["away", away ?? -1],
+  ] as Array<["home" | "draw" | "away", number]>).filter((item) => item[1] >= 0);
+  resultRanking.sort((a, b) => b[1] - a[1]);
+  const over = average(over25);
+  const under = average(under25);
+  const summary: OddsSummary = {
+    bookmakers_count: bookmakers.length,
+    result: {
+      home_probability: roundedProbability(home),
+      draw_probability: roundedProbability(draw),
+      away_probability: roundedProbability(away),
+      favorite: resultRanking[0]?.[0] ?? null,
+    },
+    goals: {
+      over_2_5_probability: roundedProbability(over),
+      under_2_5_probability: roundedProbability(under),
+      both_teams_score_yes_probability: roundedProbability(average(bttsYes)),
+      expected_range: under !== null && under >= 0.6 ? "0-2 goals" : over !== null && over >= 0.6 ? "3+ goals" : over !== null ? "2-3 goals" : null,
+    },
+    likely_scores: [...exactScores.entries()]
+      .map(([score, odds]) => ({ score: score.replace(":", "-"), average_odd: Number((average(odds) ?? 0).toFixed(2)), bookmakers: odds.length }))
+      .sort((a, b) => a.average_odd - b.average_odd)
+      .slice(0, 3),
+  };
   return {
-    bookmaker: bookmaker.name ?? null,
-    markets: bets
-      .filter((bet: any) => interestingMarkets.has(bet.name))
-      .slice(0, 4)
-      .map((bet: any) => ({
-        name: bet.name ?? null,
-        values: Array.isArray(bet.values) ? bet.values.slice(0, 8).map((value: any) => ({
-          label: value.value ?? null,
-          odd: value.odd ?? null,
-        })) : [],
-      })),
+    bookmakers_count: bookmakers.length,
+    summary,
   };
 }
 
@@ -835,26 +938,20 @@ function confidenceLevel(score: number): "low" | "medium" | "high" {
 }
 
 function matchWinnerOddsSignal(odds: any, homeTeam: string, awayTeam: string) {
-  const markets = Array.isArray(odds?.markets) ? odds.markets : [];
-  const market = markets.find((item: any) => ["Match Winner", "Home/Away"].includes(item?.name));
-  const values = Array.isArray(market?.values) ? market.values : [];
-  const map = new Map<"home" | "draw" | "away", number>();
-  for (const value of values) {
-    const label = String(value?.label ?? "").toLowerCase();
-    const odd = Number(value?.odd);
-    if (!Number.isFinite(odd) || odd <= 1) continue;
-    if (label === "home" || label === homeTeam.toLowerCase()) map.set("home", odd);
-    if (label === "draw") map.set("draw", odd);
-    if (label === "away" || label === awayTeam.toLowerCase()) map.set("away", odd);
-  }
-  if (map.size < 2) return { signal: "unavailable" as ScoreSignal, reason: "No usable match-winner odds yet." };
-  const ranked = [...map.entries()].sort((a, b) => a[1] - b[1]);
+  const result = odds?.summary?.result;
+  const ranked = ([
+    ["home", safeNumber(result?.home_probability) ?? -1],
+    ["draw", safeNumber(result?.draw_probability) ?? -1],
+    ["away", safeNumber(result?.away_probability) ?? -1],
+  ] as Array<["home" | "draw" | "away", number]>).filter((item) => item[1] >= 0);
+  ranked.sort((a, b) => b[1] - a[1]);
   const [best, second] = ranked;
   if (!best || !second) return { signal: "unavailable" as ScoreSignal, reason: "No usable match-winner odds yet." };
-  const edge = second[1] - best[1];
+  const edge = best[1] - second[1];
+  const label = best[0] === "home" ? homeTeam : best[0] === "away" ? awayTeam : "draw";
   return {
-    signal: edge < 0.18 ? "balanced" as ScoreSignal : best[0],
-    reason: `Market leans ${best[0]} from ${odds.bookmaker ?? "available"} odds.`,
+    signal: edge < 6 ? "balanced" as ScoreSignal : best[0],
+    reason: `Consensus across ${odds?.summary?.bookmakers_count ?? odds?.bookmakers_count ?? "available"} bookmaker(s) leans ${label} at ${best[1].toFixed(1)}%.`,
   };
 }
 
@@ -960,13 +1057,21 @@ function regionalContextSignal(homeTeam: string, awayTeam: string) {
   };
 }
 
-function suggestedScoreFromEdge(homeTeam: string, awayTeam: string, edge: number, strengthGap: number) {
-  if (edge >= 0.45 && strengthGap >= 16) return `${homeTeam} 3-0 ${awayTeam}`;
-  if (edge <= -0.45 && strengthGap <= -16) return `${homeTeam} 0-3 ${awayTeam}`;
-  if (edge >= 0.55) return `${homeTeam} 2-0 ${awayTeam}`;
-  if (edge >= 0.2) return `${homeTeam} 2-1 ${awayTeam}`;
-  if (edge <= -0.55) return `${homeTeam} 0-2 ${awayTeam}`;
-  if (edge <= -0.2) return `${homeTeam} 1-2 ${awayTeam}`;
+function suggestedScoreFromEdge(homeTeam: string, awayTeam: string, edge: number, strengthGap: number, odds: any) {
+  const over25 = safeNumber(odds?.summary?.goals?.over_2_5_probability);
+  const under25 = safeNumber(odds?.summary?.goals?.under_2_5_probability);
+  const btts = safeNumber(odds?.summary?.goals?.both_teams_score_yes_probability);
+  const lowScoring = under25 !== null && under25 >= 60;
+  const highScoring = over25 !== null && over25 >= 60;
+  const bothScore = btts !== null && btts >= 55;
+  if (edge >= 0.45 && strengthGap >= 16) return `${homeTeam} ${lowScoring ? "2-0" : bothScore ? "3-1" : "3-0"} ${awayTeam}`;
+  if (edge <= -0.45 && strengthGap <= -16) return `${homeTeam} ${lowScoring ? "0-2" : bothScore ? "1-3" : "0-3"} ${awayTeam}`;
+  if (edge >= 0.55) return `${homeTeam} ${bothScore ? "2-1" : "2-0"} ${awayTeam}`;
+  if (edge >= 0.2) return `${homeTeam} ${lowScoring ? "1-0" : "2-1"} ${awayTeam}`;
+  if (edge <= -0.55) return `${homeTeam} ${bothScore ? "1-2" : "0-2"} ${awayTeam}`;
+  if (edge <= -0.2) return `${homeTeam} ${lowScoring ? "0-1" : "1-2"} ${awayTeam}`;
+  if (highScoring) return `${homeTeam} 2-2 ${awayTeam}`;
+  if (lowScoring) return `${homeTeam} 0-0 ${awayTeam}`;
   return `${homeTeam} 1-1 ${awayTeam}`;
 }
 
@@ -979,12 +1084,12 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
   const regional = regionalContextSignal(match.home_team, match.away_team);
   const strengthGap = (teamStrength(match.home_team) + regional.boost_home) - (teamStrength(match.away_team) + regional.boost_away);
   const weightedSignals = [
-    { ...market, weight: 0.35 },
-    { ...api, weight: 0.25 },
-    { ...qualifiers, weight: 0.2 },
-    { ...strength, weight: 0.13 },
-    { ...recent, weight: 0.05 },
-    { ...regional, weight: 0.02 },
+    { ...market, weight: 0.22 },
+    { ...api, weight: 0.18 },
+    { ...qualifiers, weight: 0.25 },
+    { ...strength, weight: 0.2 },
+    { ...recent, weight: 0.12 },
+    { ...regional, weight: 0.03 },
   ];
   const usable = weightedSignals.filter((item) => !["unavailable", "sparse"].includes(item.signal));
   const totalWeight = usable.reduce((sum, item) => sum + item.weight, 0);
@@ -1005,7 +1110,7 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
     regional_context_signal: regional.signal,
     confidence_score: Number(confidence.toFixed(2)),
     confidence_level: level,
-    suggested_pick: suggestedScoreFromEdge(match.home_team, match.away_team, edge, strengthGap),
+    suggested_pick: suggestedScoreFromEdge(match.home_team, match.away_team, edge, strengthGap, scouting.market_odds),
     bonus_recommended: level === "high" && Math.abs(edge) >= 0.5 && String(match.stage ?? "").toLowerCase().includes("group"),
     reasons: [market.reason, api.reason, qualifiers.reason, strength.reason, regional.reason, recent.reason].filter(Boolean).slice(0, 5),
   };
@@ -1043,7 +1148,8 @@ function buildScoutingInsights(match: MatchRow, scouting: any) {
   const away = teamInsightSummary(match.away_team, scouting.world_cup_qualifiers?.away ?? null, scouting.teams?.away?.recent_form ?? []);
   const injuries = Array.isArray(scouting.injuries) ? scouting.injuries : [];
   return {
-    instruction: "Prioritize these concrete numbers in the user-facing insight bullets before generic strength-prior language.",
+    instruction: "Prioritize concrete football numbers and context. Bookmaker consensus is one useful signal, never the sole basis for the pick.",
+    bookmaker_consensus: scouting.market_odds?.summary ?? null,
     form_comparison: {
       home,
       away,
@@ -1327,6 +1433,11 @@ function insightFormTable(stats: unknown): InsightFormRow[] | undefined {
   return Array.isArray(rows) ? rows.slice(0, 2) : undefined;
 }
 
+function insightOddsSummary(stats: unknown): OddsSummary | undefined {
+  const summary = (stats as any)?.market_odds?.summary;
+  return summary?.bookmakers_count ? summary : undefined;
+}
+
 function fallbackInsight(match: MatchRow, statsSource: string, scorecard?: Scorecard, stats?: unknown): InsightPayload {
   return {
     headline: `${match.home_team} vs ${match.away_team}: quick read`,
@@ -1343,6 +1454,7 @@ function fallbackInsight(match: MatchRow, statsSource: string, scorecard?: Score
     confidence: scorecard?.confidence_level ?? "low",
     disclaimer: "AI insight for fun only. Not betting advice.",
     form_table: insightFormTable(stats),
+    odds_summary: insightOddsSummary(stats),
   };
 }
 
@@ -1361,6 +1473,7 @@ function coerceInsight(value: any, match: MatchRow, scorecard?: Scorecard, stats
     confidence: ["low", "medium", "high"].includes(value?.confidence) ? value.confidence : (scorecard?.confidence_level ?? "low"),
     disclaimer: String(value?.disclaimer || "AI insight for fun only. Not betting advice."),
     form_table: insightFormTable(stats),
+    odds_summary: insightOddsSummary(stats),
   };
 }
 
@@ -1387,6 +1500,7 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "You are Oddzz AI, a friendly World Cup prediction assistant for entertainment only.",
             "Use ONLY the match and stats JSON provided by the user. Do not invent team history, host status, recent form, injuries, rankings, or previous results.",
             "World Cup fixtures are neutral-tournament fixtures unless the stats explicitly say otherwise. The JSON fields home and away are fixture labels only; never infer home advantage, home-team win, or home crowd advantage from them.",
+            "Never describe the predicted result as a home win or away win. Name the team instead.",
             "You may mention tournament_context when present: USA, Canada and Mexico get a small host/travel context edge, and North/South American teams may get a smaller regional travel/context edge. Describe this as regional context, never as home advantage unless the team is actually a host playing in its host country.",
             "The stats JSON contains oddzz_scorecard. Treat this scorecard as the primary recommendation produced by Oddzz's deterministic engine. Explain it clearly; do not override its suggested_pick unless the provided raw datasets strongly contradict it.",
             "The stats JSON also contains scouting_insights and insight_form_table. Use them as the main source for the rationale paragraph: recent results, goals scored, goals conceded, adjusted points per match, average opponent strength, baseline strength, and injury watch.",
@@ -1394,10 +1508,12 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "When writing form bullets, use scouting_insights.form_comparison.home.source_label and scouting_insights.form_comparison.away.source_label. If a team source is host_recent_all_competitions or recent_form, do not describe that data as World Cup qualifiers.",
             "The angles array is kept only for backward compatibility and can be short. Do not rely on it for the final UI.",
             "When injuries are available, mention key absences by player/team/reason. If injury data is unavailable, say 'No fixture injury list available yet' only if useful; do not overstate it.",
-            "Consider the available datasets in this order: market_odds, provider_prediction, world_cup_qualifiers, recent_form, head_to_head, team_statistics, standings, injuries, then match context.",
+            "Consider all available datasets together: World Cup qualifiers, baseline strength, recent form, provider prediction, bookmaker consensus, head-to-head, team statistics, standings, injuries, and tournament context.",
             "World Cup qualifier history is an important national-team signal. Oddzz adjusts this signal by confederation strength, so continents are not treated as perfectly equal.",
             "For 2026 host teams without qualifiers, Oddzz may provide host_recent_all_competitions from their latest 10 completed matches including friendlies. Treat it as useful but weaker than true qualifier data.",
-            "If market_odds exists, treat bookmaker odds as a useful market signal, not certainty. Use it especially to break ties when football stats are limited.",
+            "If scouting_insights.bookmaker_consensus exists, summarize what the combined bookmakers expect using the result probabilities, over/under 2.5 goals, both-teams-to-score probability, and likely exact scores when available.",
+            "Bookmaker consensus is one weighted signal, not the main prediction and never certainty. Do not simply copy the bookmaker favorite or likely score; reconcile it with qualifier form, opponent quality, strength prior, recent form, injuries, and tournament context.",
+            "The deterministic engine may use the goals market only to shape the exact scoreline after all signals determine the likely result; never let goals odds choose the winner.",
             "When provider_prediction and live statistics are missing or limited, use baseline_strength_prior as a heuristic fallback so stronger teams are not treated as automatic 1-1 draws.",
             "If the strength gap is 6+ points, avoid defaulting to a draw unless other provided data clearly supports it.",
             "If API-Football's provider_prediction exists, treat it as one useful signal, not as guaranteed truth.",
