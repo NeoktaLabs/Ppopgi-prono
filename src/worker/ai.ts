@@ -1483,6 +1483,14 @@ async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, langu
   return { insight, cached: false, updated_at: now, stats_source: stats.source };
 }
 
+async function refreshFixtureScoutingDatasets(env: Env, match: MatchRow) {
+  await Promise.all([
+    fetchApiFootball(env, "/predictions", { fixture: match.external_id }).catch(() => null),
+    fetchApiFootball(env, "/injuries", { fixture: match.external_id }).catch(() => null),
+    fetchApiFootball(env, "/odds", { fixture: match.external_id }).catch(() => null),
+  ]);
+}
+
 async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: InsightLanguage) {
   const cached = await latestCachedInsight(env, match.id, language, match.kickoff_at);
   if (cached) {
@@ -1492,6 +1500,7 @@ async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: Insi
   if (new Date(match.kickoff_at).getTime() <= Date.now()) {
     return badRequest("OddzzAI predictions are only generated before kickoff.", 409);
   }
+  await refreshFixtureScoutingDatasets(env, match);
   return cachedOrGenerateInsightFromStats(env, match, language, await buildStatsSnapshot(env, match, { allowProviderFetch: false }));
 }
 
