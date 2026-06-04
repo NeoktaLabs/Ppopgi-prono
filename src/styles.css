@@ -283,6 +283,8 @@ input:focus{border-color:var(--pitch);box-shadow:0 0 0 4px rgba(31,211,107,.16)}
 .inline-pick{background:#f7fbff;border-top-color:#dce6f3}
 .prediction-row,.comparison-row{background:#f8fbff;border-color:#dce6f3}
 .comparison-row.is-me{background:linear-gradient(135deg,rgba(255,201,71,.22),#fff)!important;border-color:rgba(255,201,71,.38)!important}
+.comparison-row.is-ai{background:linear-gradient(135deg,rgba(31,211,107,.14),rgba(255,77,94,.08),#fff)!important;border-color:rgba(31,211,107,.32)!important}
+.ai-player-tag{display:inline-grid;place-items:center;margin-left:.25rem;padding:.08rem .28rem;border-radius:999px;background:#061735;color:#fff;font-size:.55rem;font-weight:950;vertical-align:middle}
 .comparison-row>strong:last-child{background:#dcfce7;color:#067647}
 .score-stack>strong{background:#eaf4ff;color:var(--night)}
 .live-spotlight{background:linear-gradient(135deg,#ecfdf3,#fff 55%,#fff7dc)!important;border-color:rgba(31,211,107,.28)!important}
@@ -437,6 +439,10 @@ body{overflow-x:hidden}
 .ai-odds-goals strong{color:var(--night)}
 .ai-odds-scores{display:flex;align-items:center;justify-content:center;gap:.35rem;flex-wrap:wrap;color:#53627a;font-size:.7rem;font-weight:850}
 .ai-odds-scores strong{color:var(--night)}
+.ai-data-empty,.ai-data-status{margin:.65rem 0 0;padding:.68rem .75rem;border-radius:15px;background:#fff4c7;border:1px solid rgba(255,201,71,.42);color:#75520b;font-size:.76rem;font-weight:850;text-align:center}
+.ai-data-status{display:flex;align-items:center;justify-content:center;gap:.38rem;flex-wrap:wrap;background:#f4f8ff;border-color:#dce6f3;color:#53627a}
+.ai-data-status strong{color:var(--night)}
+.ai-data-status.is-ready{background:#dcfce7;border-color:rgba(31,211,107,.3);color:#067647}
 .ai-pick-card{display:grid;gap:.2rem;margin:1rem 0;padding:.85rem;border-radius:20px;background:linear-gradient(135deg,#061735,#102e63);color:#fff;text-align:center}
 .ai-pick-card-top{margin:.75rem 0 .75rem}
 .ai-pick-card span{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#b8c9df;font-weight:950}
@@ -447,13 +453,23 @@ body{overflow-x:hidden}
 .ai-bonus-card strong{color:var(--night);font-size:1rem}
 .ai-bonus-card p{margin:0;color:#53627a;font-size:.82rem;font-weight:750;line-height:1.35}
 .ai-form-section{display:grid;gap:.55rem;margin:1rem 0 .8rem}
-.ai-form-table{display:grid;gap:.4rem}
-.ai-form-row{display:grid;grid-template-columns:minmax(6.5rem,1fr) minmax(10rem,1.45fr) 4rem 4rem 4rem;align-items:center;gap:.55rem;padding:.62rem .68rem;border-radius:16px;background:#f4f8ff;border:1px solid #dce6f3;color:#334155;font-size:.82rem;font-weight:850}
-.ai-form-head{background:transparent;border:0;padding:.15rem .68rem;color:#667085;font-size:.68rem;text-transform:uppercase;letter-spacing:.08em}
-.ai-form-row strong{color:var(--night)}
-.ai-form-row span{min-width:0}
-.ai-form-row span b{display:block;color:var(--night);font-size:.92rem}
-.ai-form-row small{display:block;margin-top:.15rem;color:#667085;font-size:.68rem;line-height:1.25}
+.ai-form-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}
+.ai-form-card{display:grid;gap:.65rem;padding:.75rem;border-radius:18px;background:#f4f8ff;border:1px solid #dce6f3;color:#334155}
+.ai-form-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:.55rem}
+.ai-form-card-head>div:first-child{display:grid;gap:.12rem;min-width:0}
+.ai-form-card-head strong{color:var(--night);font-size:1rem}
+.ai-form-card-head small{color:#667085;font-size:.66rem;font-weight:750;line-height:1.25}
+.ai-form-strip{display:flex;gap:.2rem;flex-shrink:0}
+.ai-form-strip span,.ai-result-badge{display:grid;place-items:center;width:1.35rem;height:1.35rem;border-radius:999px;font-size:.62rem;font-weight:950}
+.form-w{background:#dcfce7;color:#067647}.form-d{background:#fff4c7;color:#8b6200}.form-l{background:#ffe4e8;color:#b4232c}.form-–{background:#edf2f7;color:#667085}
+.ai-form-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.3rem}
+.ai-form-stats span{display:grid;gap:.08rem;padding:.38rem .2rem;border-radius:12px;background:#fff;border:1px solid #e3eaf3;text-align:center}
+.ai-form-stats small{color:#667085;font-size:.55rem;font-weight:850;line-height:1.1}
+.ai-form-stats strong{color:var(--night);font-size:.82rem}
+.ai-recent-games{display:grid;gap:.28rem}
+.ai-recent-game{display:grid;grid-template-columns:1.35rem minmax(0,1fr) auto;align-items:center;gap:.4rem;padding:.35rem .4rem;border-radius:11px;background:rgba(255,255,255,.8);color:#53627a;font-size:.7rem}
+.ai-recent-game strong{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--night);white-space:nowrap}
+.ai-recent-game>span:last-child{font-weight:950;color:#334155}
 .ai-angle-list{display:grid;gap:.45rem;margin:.75rem 0;padding:0;list-style:none}
 .ai-angle-list li{padding:.62rem .7rem;border-radius:16px;background:#f4f8ff;border:1px solid #dce6f3;color:#334155;font-weight:750;line-height:1.35}
 .ai-angle-list li::before{content:"";display:inline-block;width:.42rem;height:.42rem;margin-right:.45rem;border-radius:999px;background:var(--pitch);vertical-align:.08rem}
@@ -492,12 +508,32 @@ body{overflow-x:hidden}
   .ai-backdrop{place-items:center;padding:.75rem}
   .ai-modal{width:min(100%,24rem);max-height:88vh;border-radius:24px;padding:1rem}
   .ai-insight-button{font-size:.68rem;margin-bottom:.58rem}
-  .ai-form-row{grid-template-columns:1fr;gap:.32rem;padding:.7rem;text-align:left}
-  .ai-form-head{display:none}
-  .ai-form-row span b{font-size:1rem}
-  .ai-form-row span:nth-child(3)::before{content:"Goals: ";color:#667085}
-  .ai-form-row span:nth-child(4)::before{content:"Opp.: ";color:#667085}
-  .ai-form-row span:nth-child(5)::before{content:"Base: ";color:#667085}
+  .ai-form-cards{grid-template-columns:1fr}
+  .ai-form-card{padding:.7rem}
+  .ai-form-card-head strong{font-size:1.05rem}
+  .ai-recent-game{font-size:.76rem}
+}
+@media(max-width:420px){
+  .ai-modal{padding:.85rem}
+  .ai-modal h3{margin-right:2.5rem;font-size:1.35rem}
+  .ai-summary{font-size:.82rem;line-height:1.48}
+  .ai-odds-section{padding:.65rem}
+  .ai-odds-title{align-items:flex-start}
+  .ai-odds-title h4{font-size:1rem}
+  .ai-odds-results{gap:.25rem}
+  .ai-odds-results div{padding:.48rem .18rem}
+  .ai-odds-results span{font-size:.58rem}
+  .ai-odds-results strong{font-size:.95rem}
+  .ai-odds-goals{gap:.28rem}
+  .ai-odds-goals span{font-size:.62rem;text-align:center}
+  .ai-data-empty,.ai-data-status{padding:.58rem .62rem;font-size:.68rem;line-height:1.35}
+  .ai-form-card-head{align-items:flex-start}
+  .ai-form-strip{gap:.12rem}
+  .ai-form-strip span,.ai-result-badge{width:1.22rem;height:1.22rem;font-size:.55rem}
+  .ai-form-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ai-form-stats small{font-size:.58rem}
+  .ai-form-stats strong{font-size:.85rem}
+  .ai-recent-game{grid-template-columns:1.22rem minmax(0,1fr) auto;gap:.32rem;padding:.34rem .36rem;font-size:.72rem}
 }
 
 /* Final lobby, footer, and prediction sizing polish */

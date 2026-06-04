@@ -14,6 +14,12 @@ type InsightPayload = {
   disclaimer: string;
   form_table?: InsightFormRow[];
   odds_summary?: OddsSummary;
+  data_availability?: InsightDataAvailability;
+};
+
+type InsightDataAvailability = {
+  bookmakers: boolean;
+  provider_prediction: boolean;
 };
 
 type OddsSummary = {
@@ -84,7 +90,7 @@ type TeamFormHistory = {
   };
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-04-scorecard-v33-market-consensus";
+const INSIGHT_PROMPT_VERSION = "2026-06-04-scorecard-v36-data-availability";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
@@ -1438,10 +1444,17 @@ function insightOddsSummary(stats: unknown): OddsSummary | undefined {
   return summary?.bookmakers_count ? summary : undefined;
 }
 
+function insightDataAvailability(stats: unknown): InsightDataAvailability {
+  return {
+    bookmakers: (stats as any)?.datasets?.odds === true,
+    provider_prediction: (stats as any)?.datasets?.api_prediction === true,
+  };
+}
+
 function fallbackInsight(match: MatchRow, statsSource: string, scorecard?: Scorecard, stats?: unknown): InsightPayload {
   return {
     headline: `${match.home_team} vs ${match.away_team}: quick read`,
-    summary: scorecard ? `OddzzAI scorecard leans toward ${scorecard.suggested_pick} with ${scorecard.confidence_level} confidence.` : `Oddzz AI can compare team stats once API keys are configured. For now, this local preview uses fixture context only, so treat it as a UI demo rather than a real forecast.`,
+    summary: scorecard ? scorecard.reasons.join(" ") : `Oddzz AI can compare team stats once API keys are configured. For now, this local preview uses fixture context only.`,
     angles: [
       ...(scorecard?.reasons ?? [`${match.stage ?? "World Cup"} match scheduled for ${new Date(match.kickoff_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}.`]),
       `Stats source: ${statsSource}.`,
@@ -1455,6 +1468,7 @@ function fallbackInsight(match: MatchRow, statsSource: string, scorecard?: Score
     disclaimer: "AI insight for fun only. Not betting advice.",
     form_table: insightFormTable(stats),
     odds_summary: insightOddsSummary(stats),
+    data_availability: insightDataAvailability(stats),
   };
 }
 
@@ -1474,6 +1488,7 @@ function coerceInsight(value: any, match: MatchRow, scorecard?: Scorecard, stats
     disclaimer: String(value?.disclaimer || "AI insight for fun only. Not betting advice."),
     form_table: insightFormTable(stats),
     odds_summary: insightOddsSummary(stats),
+    data_availability: insightDataAvailability(stats),
   };
 }
 
@@ -1502,7 +1517,11 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "World Cup fixtures are neutral-tournament fixtures unless the stats explicitly say otherwise. The JSON fields home and away are fixture labels only; never infer home advantage, home-team win, or home crowd advantage from them.",
             "Never describe the predicted result as a home win or away win. Name the team instead.",
             "You may mention tournament_context when present: USA, Canada and Mexico get a small host/travel context edge, and North/South American teams may get a smaller regional travel/context edge. Describe this as regional context, never as home advantage unless the team is actually a host playing in its host country.",
-            "The stats JSON contains oddzz_scorecard. Treat this scorecard as the primary recommendation produced by Oddzz's deterministic engine. Explain it clearly; do not override its suggested_pick unless the provided raw datasets strongly contradict it.",
+            "The stats JSON contains oddzz_scorecard. Use it only to create the private machine-readable suggested_pick and bonus_recommendation fields; never explain or reveal those private fields to users.",
+            "OddzzAI competes privately against players. Never reveal its suggested winner, exact score, confidence in its pick, or x5 bonus decision in headline, summary, angles, or disclaimer.",
+            "Write headline and summary as a neutral scouting brief that helps users make their own decision. Present meaningful strengths, weaknesses, form, opponent quality, injuries, market probabilities, and goal expectations without concluding who OddzzAI selected.",
+            "Do not end the public summary by saying which team is expected to win, score more, prevail, edge the match, or has OddzzAI's overall advantage. It is fine to state explicitly attributed facts such as bookmaker probabilities or a stronger individual dataset, but leave conflicting signals unresolved for the user.",
+            "The summary must concisely account for every dataset category supplied in stats.datasets: bookmaker odds, API-Football provider prediction, World Cup qualifiers, recent form, head-to-head, team statistics, standings, and injuries. Mention useful available signals and clearly say when bookmaker odds or provider predictions are not available yet.",
             "The stats JSON also contains scouting_insights and insight_form_table. Use them as the main source for the rationale paragraph: recent results, goals scored, goals conceded, adjusted points per match, average opponent strength, baseline strength, and injury watch.",
             "When scouting_insights.historical_match_details contains cached past fixture statistics, events, or lineups, use them to add concrete context such as shots, corners, cards, goals/events, formations, and notable starters. Do not invent those details when missing.",
             "When writing form bullets, use scouting_insights.form_comparison.home.source_label and scouting_insights.form_comparison.away.source_label. If a team source is host_recent_all_competitions or recent_form, do not describe that data as World Cup qualifiers.",
@@ -1521,7 +1540,7 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "The suggested_pick must be an exact scoreline in the format 'Team A 1-1 Team B', not just a winner.",
             "Prefer oddzz_scorecard.suggested_pick for suggested_pick. Bonus recommendation should normally follow oddzz_scorecard.bonus_recommended.",
             "Also recommend whether OddzzAI should use one of its two x5 bonuses. It can only use bonuses on group-stage matches, and only when confidence is high enough to justify the risk.",
-            "Write summary as one clean rationale paragraph explaining why the suggested pick and bonus call make sense. Do not format it as bullets.",
+            "Write summary as one clean neutral scouting paragraph. It must not mention the internal suggested_pick or bonus_recommendation.",
             "Keep the answer concise and useful for a prediction game.",
             languageInstruction,
             "Return strict JSON with keys: headline, summary, angles, suggested_pick, bonus_recommendation, confidence, disclaimer. bonus_recommendation must be an object with boolean use_bonus and string reason.",
@@ -1546,6 +1565,20 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
   return coerceInsight(JSON.parse(payload.choices?.[0]?.message?.content ?? "{}"), match, scorecard, stats);
 }
 
+function publicInsight(insight: InsightPayload) {
+  return {
+    headline: insight.headline,
+    summary: insight.summary,
+    disclaimer: insight.disclaimer,
+    form_table: insight.form_table,
+    odds_summary: insight.odds_summary ? {
+      ...insight.odds_summary,
+      likely_scores: [],
+    } : undefined,
+    data_availability: insight.data_availability,
+  };
+}
+
 export async function fixtureAiInsight(request: Request, env: Env, matchId: string) {
   const user = await requireUser(request, env);
   if (!user) return badRequest("Not authenticated.", 401);
@@ -1554,7 +1587,7 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
   const language = new URL(request.url).searchParams.get("lang") === "fr" ? "fr" : "en";
 
   const result = await cachedOrGenerateInsight(env, match, language);
-  return result instanceof Response ? result : json(result);
+  return result instanceof Response ? result : json({ ...result, insight: publicInsight(result.insight) });
 }
 
 async function latestCachedInsight(env: Env, matchId: string, language: InsightLanguage, kickoffAt: string) {

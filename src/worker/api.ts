@@ -216,7 +216,12 @@ export async function matchPredictions(request: Request, env: Env, leagueId: str
     ? "WITH global_predictions AS (SELECT user_id, match_id, MAX(home_score) as home_score, MAX(away_score) as away_score, MAX(points) as points, MAX(bonus_used) as bonus_used FROM predictions GROUP BY user_id, match_id) SELECT users.id as user_id, users.nickname, global_predictions.home_score, global_predictions.away_score, global_predictions.points, global_predictions.bonus_used FROM league_members JOIN users ON users.id = league_members.user_id LEFT JOIN global_predictions ON global_predictions.user_id = users.id AND global_predictions.match_id = ? WHERE league_members.league_id = ? AND league_members.removed_at IS NULL ORDER BY users.nickname ASC"
     : "SELECT predictions.user_id, users.nickname, MAX(predictions.home_score) as home_score, MAX(predictions.away_score) as away_score, MAX(predictions.points) as points, MAX(predictions.bonus_used) as bonus_used FROM predictions JOIN users ON users.id = predictions.user_id WHERE predictions.match_id = ? AND predictions.user_id = ? GROUP BY predictions.user_id ORDER BY users.nickname ASC";
   const rows = hasStarted ? await env.DB.prepare(query).bind(matchId, leagueId).all() : await env.DB.prepare(query).bind(matchId, user.id).all();
-  return json({ visibleToAll: hasStarted, predictions: rows.results ?? [] });
+  const predictions = rows.results ?? [];
+  if (hasStarted) {
+    const aiPrediction = (await oddzzAiVisiblePredictions(env)).find((prediction) => prediction.match_id === matchId);
+    if (aiPrediction) predictions.push({ ...aiPrediction, user_id: ODDZZ_AI_USER_ID, nickname: "OddzzAI" });
+  }
+  return json({ visibleToAll: hasStarted, predictions });
 }
 
 export async function globalLeaderboard(request: Request, env: Env) {

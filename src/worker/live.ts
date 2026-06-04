@@ -1,7 +1,7 @@
 import type { Env, MatchRow } from "./types";
 import { badRequest, json, requireUser } from "./utils";
 import { calculatePredictionPoints, isGroupStage, multiplierForStage, usableFinalScore } from "./scoring";
-import { oddzzAiLeaderboardRow, rankLeaderboardRows } from "./ai-leaderboard";
+import { ODDZZ_AI_USER_ID, oddzzAiLeaderboardRow, oddzzAiVisiblePredictions, rankLeaderboardRows } from "./ai-leaderboard";
 
 type LeaderboardRow = {
   user_id: string;
@@ -181,7 +181,7 @@ async function predictionsForMatch(env: Env, leagueId: string, match: MatchRow) 
     ORDER BY users.nickname ASC
   `).bind(match.id, leagueId).all<PredictionRow>();
 
-  return (rows.results ?? []).map((prediction) => {
+  const predictions = (rows.results ?? []).map((prediction) => {
     const livePoints = liveScore && prediction.home_score !== null && prediction.away_score !== null
       ? calculatePredictionPoints({
           predictedHome: prediction.home_score,
@@ -195,6 +195,19 @@ async function predictionsForMatch(env: Env, leagueId: string, match: MatchRow) 
 
     return { ...prediction, live_points: livePoints };
   });
+  const aiPrediction = (await oddzzAiVisiblePredictions(env)).find((prediction) => prediction.match_id === match.id);
+  if (aiPrediction) {
+    predictions.push({
+      user_id: ODDZZ_AI_USER_ID,
+      nickname: "OddzzAI",
+      home_score: aiPrediction.home_score,
+      away_score: aiPrediction.away_score,
+      points: aiPrediction.points,
+      bonus_used: aiPrediction.bonus_used ?? 0,
+      live_points: aiPrediction.points,
+    });
+  }
+  return predictions;
 }
 
 export async function leagueHome(request: Request, env: Env, leagueId: string) {
