@@ -424,7 +424,9 @@ body{overflow-x:hidden}
 .ai-modal h4{margin:.85rem 0 .45rem;font-size:1.1rem;color:var(--night)}
 .ai-loading{display:grid;place-items:center;min-height:9rem;border-radius:20px;background:#f4f8ff;color:#53627a;font-weight:950;text-align:center}
 .ai-cache-pill{display:inline-flex;align-items:center;margin:.25rem 0 .2rem;padding:.32rem .55rem;border-radius:999px;background:#dcfce7;color:#067647;font-size:.72rem;font-weight:950}
-.ai-summary{margin:0;color:#334155;font-weight:700;line-height:1.5}
+.ai-summary{display:grid;gap:.65rem;color:#334155;font-weight:700;line-height:1.55}
+.ai-summary p{margin:0}
+.ai-summary p+p{padding-top:.65rem;border-top:1px solid rgba(220,230,243,.85)}
 .ai-rationale{display:grid;gap:.35rem;margin:.9rem 0}
 .ai-rationale h4,.ai-form-section h4,.ai-odds-section h4{margin:0;color:var(--night)}
 .ai-odds-section{display:grid;gap:.65rem;margin:1rem 0;padding:.8rem;border-radius:20px;background:linear-gradient(135deg,rgba(255,201,71,.16),rgba(31,211,107,.1),#f4f8ff);border:1px solid #dce6f3}
@@ -516,7 +518,8 @@ body{overflow-x:hidden}
 @media(max-width:420px){
   .ai-modal{padding:.85rem}
   .ai-modal h3{margin-right:2.5rem;font-size:1.35rem}
-  .ai-summary{font-size:.82rem;line-height:1.48}
+  .ai-summary{gap:.55rem;font-size:.84rem;line-height:1.52}
+  .ai-summary p+p{padding-top:.55rem}
   .ai-odds-section{padding:.65rem}
   .ai-odds-title{align-items:flex-start}
   .ai-odds-title h4{font-size:1rem}

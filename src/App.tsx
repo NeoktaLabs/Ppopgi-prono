@@ -96,6 +96,12 @@ function RecentFormCard({ row, language }: { row: AiInsightFormRow; language: La
   });
   return <article className="ai-form-card"><div className="ai-form-card-head"><div><strong>{row.team}</strong><small>{row.source}</small></div><div className="ai-form-strip" aria-label={row.form}>{row.form.split("-").map((result, index) => <span className={`form-${result.toLowerCase()}`} key={`${result}-${index}`}>{result}</span>)}</div></div><div className="ai-form-stats"><span><small>{labels.scored}</small><strong>{row.goals_for}</strong></span><span><small>{labels.conceded}</small><strong>{row.goals_against}</strong></span><span><small>{labels.opponents}</small><strong>{row.opponent_strength == null ? "N/A" : row.opponent_strength}</strong></span><span><small>{labels.baseline}</small><strong>{row.oddzz_baseline}</strong></span></div><div className="ai-recent-games">{games.map((game, index) => <div className="ai-recent-game" key={`${game.opponent}-${index}`}><span className={`ai-result-badge form-${game.result.toLowerCase()}`}>{game.result}</span><strong>{game.opponent}</strong><span>{game.score}</span></div>)}</div></article>;
 }
+function InsightSummary({ summary }: { summary: string }) {
+  const sentences = summary.split(/(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])/).filter(Boolean);
+  const paragraphs: string[] = [];
+  for (let index = 0; index < sentences.length; index += 2) paragraphs.push(sentences.slice(index, index + 2).join(" "));
+  return <div className="ai-summary">{paragraphs.map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 20)}`}>{paragraph}</p>)}</div>;
+}
 function AiInsightModal({ match, insight, loading, error, cached, language, onClose }: { match: Match | null; insight: AiInsight | null; loading: boolean; error: string; cached?: boolean; language: Language; onClose: () => void }) {
   if (!match) return null;
   const labels = language === "fr"
@@ -112,7 +118,7 @@ function AiInsightModal({ match, insight, loading, error, cached, language, onCl
         <h3>{match.home_team} vs {match.away_team}</h3>
         {loading ? <div className="ai-loading">{labels.loading}</div> : error ? <p className="profile-status is-error">{error}</p> : insight && <>
           <div className="ai-cache-pill">{cached ? labels.cached : labels.fresh}</div>
-          <section className="ai-rationale"><h4>{labels.rationale}</h4><p className="ai-summary">{insight.summary}</p></section>
+          <section className="ai-rationale"><h4>{labels.rationale}</h4><InsightSummary summary={insight.summary} /></section>
           {odds && <section className="ai-odds-section"><div className="ai-odds-title"><h4>{labels.market}</h4><span>{odds.bookmakers_count} {labels.bookmakers}</span></div><div className="ai-odds-results"><div><span>{match.home_team}</span><strong>{percentage(odds.result.home_probability)}</strong></div><div><span>{labels.draw}</span><strong>{percentage(odds.result.draw_probability)}</strong></div><div><span>{match.away_team}</span><strong>{percentage(odds.result.away_probability)}</strong></div></div><div className="ai-odds-goals"><span>{labels.over25}: <strong>{percentage(odds.goals.over_2_5_probability)}</strong></span><span>{labels.btts}: <strong>{percentage(odds.goals.both_teams_score_yes_probability)}</strong></span>{odds.goals.expected_range && <span><strong>{odds.goals.expected_range}</strong></span>}</div></section>}
           {!odds && <p className="ai-data-empty">{labels.noBookmakers}</p>}
           <p className={`ai-data-status ${insight.data_availability?.provider_prediction ? "is-ready" : ""}`}><strong>{labels.provider}</strong><span>{insight.data_availability?.provider_prediction ? labels.providerReady : labels.noProvider}</span></p>
