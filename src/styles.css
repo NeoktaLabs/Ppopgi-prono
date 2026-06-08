@@ -373,7 +373,8 @@ body{overflow-x:hidden}
 .risk-examples b{color:#061735;font-size:.86rem}
 .risk-examples strong{color:#ff4d5e;font-size:.78rem}
 .risk-examples small{grid-column:1/-1;color:#667085;font-size:.58rem;font-weight:850;text-transform:uppercase;letter-spacing:.06em}
-.exact-score-guide .risk-examples b,.exact-score-guide .risk-examples strong{color:#fff}
+.exact-score-guide .risk-examples b{color:#fff}
+.exact-score-guide .risk-examples strong{display:inline-flex;align-items:center;justify-content:center;padding:.14rem .36rem;border-radius:999px;background:linear-gradient(135deg,#1fd36b,#70ef9f);color:#041225;box-shadow:0 8px 16px rgba(31,211,107,.14)}
 .exact-score-guide .risk-examples small{color:#c9d8eb}
 .inline-save-state{grid-column:auto;min-height:0;padding:.26rem .5rem;border-radius:999px;background:#ecfdf3;color:#067647}
 .points-badge{position:absolute;top:.82rem;right:.85rem;z-index:4;display:grid;place-items:center;min-width:4.25rem;min-height:3.25rem;padding:.42rem .58rem;border-radius:18px;background:linear-gradient(135deg,#fff,#eaf4ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 12px 22px rgba(6,23,53,.12),inset 0 1px 0 rgba(255,255,255,.85);color:var(--night);line-height:1}
