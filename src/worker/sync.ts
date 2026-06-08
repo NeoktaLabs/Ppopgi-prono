@@ -124,6 +124,12 @@ function normalizeStatus(statusShort?: string, statusLong?: string) {
   return long || short.toLowerCase() || "scheduled";
 }
 
+function formatVenue(venue: any) {
+  const name = typeof venue?.name === "string" ? venue.name.trim() : "";
+  const city = typeof venue?.city === "string" ? venue.city.trim() : "";
+  return [name, city].filter(Boolean).join(" · ") || null;
+}
+
 async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
   if (!env.FOOTBALL_API_KEY) throw new Error("FOOTBALL_API_KEY is required when FOOTBALL_PROVIDER=api-football");
   const baseUrl = env.FOOTBALL_API_BASE_URL || "https://v3.football.api-sports.io";
@@ -152,7 +158,7 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
       kickoffAt: fixture.date,
       stage: leagueData.round ?? null,
       groupName: null,
-      venue: fixture.venue?.name ?? null,
+      venue: formatVenue(fixture.venue),
       status,
       liveHomeScore: isLive ? goals.home ?? null : null,
       liveAwayScore: isLive ? goals.away ?? null : null,
