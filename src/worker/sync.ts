@@ -30,6 +30,12 @@ type ProviderMatch = {
   finalAway?: number | null;
 };
 
+type VenueDetails = {
+  name?: string | null;
+  city?: string | null;
+  country?: string | null;
+};
+
 function safeNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
@@ -124,10 +130,31 @@ function normalizeStatus(statusShort?: string, statusLong?: string) {
   return long || short.toLowerCase() || "scheduled";
 }
 
-function formatVenue(venue: any) {
-  const name = typeof venue?.name === "string" ? venue.name.trim() : "";
-  const city = typeof venue?.city === "string" ? venue.city.trim() : "";
-  return [name, city].filter(Boolean).join(" · ") || null;
+function formatVenue(venue: VenueDetails | null | undefined, fallback?: VenueDetails | null) {
+  const source = { ...fallback, ...venue };
+  const name = typeof source.name === "string" ? source.name.trim() : "";
+  const city = typeof source.city === "string" ? source.city.trim() : "";
+  const country = typeof source.country === "string" ? source.country.trim() : "";
+  return [name, city, country].filter(Boolean).join(" · ") || null;
+}
+
+async function fetchVenueDetails(baseUrl: string, apiKey: string, venueId: number, cache: Map<number, VenueDetails | null>) {
+  if (cache.has(venueId)) return cache.get(venueId) ?? null;
+  try {
+    const response = await fetch(`${baseUrl}/venues?id=${venueId}`, { headers: { "x-apisports-key": apiKey } });
+    if (!response.ok) {
+      cache.set(venueId, null);
+      return null;
+    }
+    const payload = await response.json() as { response?: any[] };
+    const venue = payload.response?.[0];
+    const details = venue ? { name: venue.name, city: venue.city, country: venue.country } : null;
+    cache.set(venueId, details);
+    return details;
+  } catch {
+    cache.set(venueId, null);
+    return null;
+  }
 }
 
 async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
@@ -138,7 +165,8 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
   const response = await fetch(`${baseUrl}/fixtures?league=${league}&season=${season}`, { headers: { "x-apisports-key": env.FOOTBALL_API_KEY } });
   if (!response.ok) throw new Error(`API-Football request failed with ${response.status}`);
   const payload = await response.json() as { response?: any[] };
-  return (payload.response ?? []).map((item) => {
+  const venueCache = new Map<number, VenueDetails | null>();
+  return Promise.all((payload.response ?? []).map(async (item) => {
     const fixture = item.fixture ?? {};
     const leagueData = item.league ?? {};
     const teams = item.teams ?? {};
@@ -147,6 +175,8 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
     const status = normalizeStatus(fixture.status?.short, fixture.status?.long);
     const elapsed = typeof fixture.status?.elapsed === "number" ? fixture.status.elapsed : null;
     const isLive = ["1H", "2H", "HT", "ET", "BT", "P", "penalties", "LIVE"].includes(status);
+    const venueId = safeNumber(fixture.venue?.id);
+    const venueDetails = venueId ? await fetchVenueDetails(baseUrl, env.FOOTBALL_API_KEY!, venueId, venueCache) : null;
     return {
       externalId: String(fixture.id),
       homeTeamApiId: safeNumber(teams.home?.id),
@@ -158,7 +188,7 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
       kickoffAt: fixture.date,
       stage: leagueData.round ?? null,
       groupName: null,
-      venue: formatVenue(fixture.venue),
+      venue: formatVenue(fixture.venue, venueDetails),
       status,
       liveHomeScore: isLive ? goals.home ?? null : null,
       liveAwayScore: isLive ? goals.away ?? null : null,
@@ -172,7 +202,7 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
       finalHome: ["finished"].includes(status) ? goals.home ?? null : null,
       finalAway: ["finished"].includes(status) ? goals.away ?? null : null,
     };
-  });
+  }));
 }
 
 async function recalculateFinishedMatches(env: Env) {

@@ -36,7 +36,9 @@ export function calculatePredictionPoints(args: {
 }) {
   const exact = args.predictedHome === args.finalHome && args.predictedAway === args.finalAway;
   const correctResult = resultOf(args.predictedHome, args.predictedAway) === resultOf(args.finalHome, args.finalAway);
-  const basePoints = exact ? 5 : correctResult ? 3 : 0;
+  const predictedTotalGoals = args.predictedHome + args.predictedAway;
+  const exactBasePoints = predictedTotalGoals >= 5 ? 15 : predictedTotalGoals >= 3 ? 10 : 5;
+  const basePoints = exact ? exactBasePoints : correctResult ? 3 : 0;
 
   return {
     points: basePoints * args.multiplier * (args.bonusMultiplier ?? 1),
