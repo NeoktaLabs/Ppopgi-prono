@@ -3,6 +3,7 @@ import { nowIso } from "./utils";
 import { multiplierForStage } from "./scoring";
 import { recalculateMatch } from "./api";
 import { savePreMatchSnapshotsForMatches } from "./live";
+import { saveGlobalPreMatchSnapshotsForMatches } from "./global-leaderboard";
 
 type ProviderMatch = {
   externalId: string;
@@ -209,6 +210,7 @@ async function recalculateFinishedMatches(env: Env) {
   const rows = await env.DB.prepare(`SELECT id FROM matches WHERE status IN ('finished', 'FINISHED') AND (manual_final_home IS NOT NULL OR final_home IS NOT NULL OR score_120_home IS NOT NULL OR score_90_home IS NOT NULL)`).all<{ id: string }>();
   const matchIds = (rows.results ?? []).map((row) => row.id);
   await savePreMatchSnapshotsForMatches(env, matchIds);
+  await saveGlobalPreMatchSnapshotsForMatches(env, matchIds);
   for (const matchId of matchIds) await recalculateMatch(env, matchId);
 }
 

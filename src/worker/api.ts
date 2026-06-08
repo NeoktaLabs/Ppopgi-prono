@@ -3,6 +3,7 @@ import { badRequest, json, nowIso, randomCode, readJson, requireUser } from "./u
 import { calculatePredictionPoints, isGroupStage, multiplierForStage, usableFinalScore } from "./scoring";
 import { clearPendingSignupCookie, createSession, findOrCreateUser, pendingSignupEmail } from "./auth";
 import { ODDZZ_AI_USER_ID, oddzzAiLeaderboardRow, oddzzAiVisiblePredictions, rankLeaderboardRows } from "./ai-leaderboard";
+import { buildGlobalLeaderboard, withGlobalLastMatchDeltas } from "./global-leaderboard";
 
 function isGlobalAdmin(env: Env, email: string) {
   return (env.GLOBAL_ADMIN_EMAILS ?? "")
@@ -226,30 +227,8 @@ export async function matchPredictions(request: Request, env: Env, leagueId: str
 
 export async function globalLeaderboard(request: Request, env: Env) {
   if (!(await requireUser(request, env))) return badRequest("Not authenticated.", 401);
-  const rows = await env.DB.prepare(`
-    WITH global_predictions AS (
-      SELECT user_id, match_id, MAX(points) as points, MAX(is_exact) as is_exact, MAX(is_correct_result) as is_correct_result, MAX(bonus_used) as bonus_used
-      FROM predictions
-      GROUP BY user_id, match_id
-    )
-    SELECT users.id as user_id, users.nickname, COALESCE(SUM(global_predictions.points), 0) as points, COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores, COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results, COUNT(global_predictions.match_id) as predictions_count, MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
-    FROM users
-    LEFT JOIN global_predictions ON global_predictions.user_id = users.id
-    LEFT JOIN matches ON matches.id = global_predictions.match_id
-    GROUP BY users.id
-    ORDER BY points DESC, exact_scores DESC, correct_results DESC, predictions_count DESC, users.nickname ASC
-  `).bind(nowIso()).all();
-  const aiRow = await oddzzAiLeaderboardRow(env);
-  const leaderboardRows = [...(rows.results ?? []).map((row) => ({
-    user_id: String((row as any).user_id),
-    nickname: (row as any).nickname ?? null,
-    points: Number((row as any).points ?? 0),
-    exact_scores: Number((row as any).exact_scores ?? 0),
-    correct_results: Number((row as any).correct_results ?? 0),
-    predictions_count: Number((row as any).predictions_count ?? 0),
-    bonuses_remaining: Number((row as any).bonuses_remaining ?? 0),
-  })), ...(aiRow ? [aiRow] : [])];
-  return json({ leaderboard: rankLeaderboardRows(leaderboardRows).map((row) => ({ ...row, official_rank: row.rank, rank_delta: 0, movement_type: "last_match" })) });
+  const leaderboard = await withGlobalLastMatchDeltas(env, await buildGlobalLeaderboard(env));
+  return json({ leaderboard });
 }
 
 export async function globalUserPredictions(request: Request, env: Env, userId: string) {
