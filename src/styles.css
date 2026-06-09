@@ -462,8 +462,10 @@ body{overflow-x:hidden}
 .email-preferences h3{margin:0 0 .22rem;color:var(--night)}
 .email-preferences p{margin:0;color:#53627a;font-size:.86rem;font-weight:750;line-height:1.35}
 .email-preference-controls{display:flex;align-items:center;justify-content:flex-end;gap:.55rem;flex-wrap:wrap}
+.profile-language-block{display:grid;gap:.25rem}
+.profile-language-block>span{color:#53627a;font-size:.68rem;font-weight:950;letter-spacing:.08em;text-transform:uppercase}
 .profile-language-choice{display:inline-flex;align-items:center;gap:.2rem;padding:.18rem;border-radius:999px;background:#fff;border:1px solid rgba(9,24,51,.1)}
-.profile-language-choice button{min-width:2.45rem;min-height:2rem;padding:.38rem .55rem;background:transparent;color:#53627a;border-radius:999px;box-shadow:none}
+.profile-language-choice button{min-width:4.8rem;min-height:2rem;padding:.38rem .62rem;background:transparent;color:#53627a;border-radius:999px;box-shadow:none}
 .profile-language-choice button.active{background:var(--night);color:#fff}
 .email-reminder-toggle{min-height:2.38rem;margin:0;padding:.48rem .68rem;background:#fff!important}
 .email-reminder-toggle input{width:auto;accent-color:var(--pitch)}
@@ -675,5 +677,6 @@ body{overflow-x:hidden}
   .lobby-quickstart button{width:100%;min-width:0}
   .email-preferences{grid-template-columns:1fr;padding:.78rem}
   .email-preference-controls{justify-content:stretch}
-  .profile-language-choice,.email-reminder-toggle{width:100%;justify-content:center}
+  .profile-language-block,.profile-language-choice,.email-reminder-toggle{width:100%;justify-content:center}
+  .profile-language-block>span{text-align:center}
 }
