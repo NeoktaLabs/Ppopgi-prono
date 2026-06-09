@@ -4,6 +4,7 @@ import { calculatePredictionPoints, isGroupStage, multiplierForStage, usableFina
 import { clearPendingSignupCookie, createSession, findOrCreateUser, pendingSignupEmail } from "./auth";
 import { ODDZZ_AI_USER_ID, oddzzAiLeaderboardRow, oddzzAiVisiblePredictions, rankLeaderboardRows } from "./ai-leaderboard";
 import { buildGlobalLeaderboard, withGlobalLastMatchDeltas } from "./global-leaderboard";
+import { buildComputedLeaderboardRows } from "./leaderboard-aggregation";
 
 function isGlobalAdmin(env: Env, email: string) {
   return (env.GLOBAL_ADMIN_EMAILS ?? "")
@@ -98,31 +99,8 @@ export async function leaderboard(request: Request, env: Env, leagueId: string) 
   const user = await requireUser(request, env);
   if (!user) return badRequest("Not authenticated.", 401);
   if (!(await isLeagueMember(env, leagueId, user.id))) return badRequest("You are not a member of this league.", 403);
-  const rows = await env.DB.prepare(`
-    WITH global_predictions AS (
-      SELECT user_id, match_id, MAX(points) as points, MAX(is_exact) as is_exact, MAX(is_correct_result) as is_correct_result, MAX(bonus_used) as bonus_used
-      FROM predictions
-      GROUP BY user_id, match_id
-    )
-    SELECT users.id, users.nickname, COALESCE(SUM(global_predictions.points), 0) as points, COALESCE(SUM(global_predictions.is_exact), 0) as exact_scores, COALESCE(SUM(global_predictions.is_correct_result), 0) as correct_results, COUNT(global_predictions.match_id) as predictions_count, MAX(0, 2 - COALESCE(SUM(CASE WHEN global_predictions.bonus_used = 1 AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%' AND (matches.status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL) THEN 1 ELSE 0 END), 0)) as bonuses_remaining
-    FROM league_members
-    JOIN users ON users.id = league_members.user_id
-    LEFT JOIN global_predictions ON global_predictions.user_id = users.id
-    LEFT JOIN matches ON matches.id = global_predictions.match_id
-    WHERE league_members.league_id = ? AND league_members.removed_at IS NULL
-    GROUP BY users.id
-    ORDER BY points DESC, exact_scores DESC, correct_results DESC, predictions_count DESC, users.nickname ASC
-  `).bind(nowIso(), leagueId).all();
   const aiRow = await oddzzAiLeaderboardRow(env);
-  const leaderboardRows = [...(rows.results ?? []).map((row: any) => ({
-    ...row,
-    user_id: row.id,
-    points: Number(row.points ?? 0),
-    exact_scores: Number(row.exact_scores ?? 0),
-    correct_results: Number(row.correct_results ?? 0),
-    predictions_count: Number(row.predictions_count ?? 0),
-    bonuses_remaining: Number(row.bonuses_remaining ?? 0),
-  })), ...(aiRow ? [aiRow] : [])];
+  const leaderboardRows = [...(await buildComputedLeaderboardRows(env, { leagueId })), ...(aiRow ? [aiRow] : [])];
   return json({ leaderboard: rankLeaderboardRows(leaderboardRows).map((row) => ({ ...row, official_rank: row.rank, rank_delta: 0, movement_type: "last_match" })) });
 }
 
@@ -217,7 +195,25 @@ export async function matchPredictions(request: Request, env: Env, leagueId: str
     ? "WITH global_predictions AS (SELECT user_id, match_id, MAX(home_score) as home_score, MAX(away_score) as away_score, MAX(points) as points, MAX(bonus_used) as bonus_used FROM predictions GROUP BY user_id, match_id) SELECT users.id as user_id, users.nickname, global_predictions.home_score, global_predictions.away_score, global_predictions.points, global_predictions.bonus_used FROM league_members JOIN users ON users.id = league_members.user_id LEFT JOIN global_predictions ON global_predictions.user_id = users.id AND global_predictions.match_id = ? WHERE league_members.league_id = ? AND league_members.removed_at IS NULL ORDER BY users.nickname ASC"
     : "SELECT predictions.user_id, users.nickname, MAX(predictions.home_score) as home_score, MAX(predictions.away_score) as away_score, MAX(predictions.points) as points, MAX(predictions.bonus_used) as bonus_used FROM predictions JOIN users ON users.id = predictions.user_id WHERE predictions.match_id = ? AND predictions.user_id = ? GROUP BY predictions.user_id ORDER BY users.nickname ASC";
   const rows = hasStarted ? await env.DB.prepare(query).bind(matchId, leagueId).all() : await env.DB.prepare(query).bind(matchId, user.id).all();
-  const predictions = rows.results ?? [];
+  let predictions = rows.results ?? [];
+  if (hasStarted) {
+    const score = usableFinalScore(match);
+    if (score) {
+      predictions = predictions.map((prediction: any) => ({
+        ...prediction,
+        points: prediction.home_score != null && prediction.away_score != null
+          ? calculatePredictionPoints({
+            predictedHome: Number(prediction.home_score),
+            predictedAway: Number(prediction.away_score),
+            finalHome: score.home,
+            finalAway: score.away,
+            multiplier: match.points_multiplier,
+            bonusMultiplier: prediction.bonus_used && isGroupStage(match.stage) ? 5 : 1,
+          }).points
+          : null,
+      }));
+    }
+  }
   if (hasStarted) {
     const aiPrediction = (await oddzzAiVisiblePredictions(env)).find((prediction) => prediction.match_id === matchId);
     if (aiPrediction) predictions.push({ ...aiPrediction, user_id: ODDZZ_AI_USER_ID, nickname: "OddzzAI" });
@@ -251,11 +247,11 @@ export async function globalUserPredictions(request: Request, env: Env, userId: 
     const isLive = ["live", "in_play", "1h", "2h", "ht", "et", "bt", "p", "penalties", "extra_time"].includes(row.status.toLowerCase());
     const score = isLive && row.live_home_score !== null && row.live_away_score !== null
       ? { home: row.live_home_score, away: row.live_away_score }
-      : null;
-    const livePoints = score
+      : usableFinalScore(row);
+    const currentPoints = score
       ? calculatePredictionPoints({ predictedHome: row.home_score, predictedAway: row.away_score, finalHome: score.home, finalAway: score.away, multiplier: row.points_multiplier, bonusMultiplier: row.bonus_used && isGroupStage(row.stage) ? 5 : 1 }).points
       : row.points;
-    return { ...row, points: livePoints };
+    return { ...row, points: currentPoints };
   }) });
 }
 
