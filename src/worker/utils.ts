@@ -69,7 +69,7 @@ export async function requireUser(request: Request, env: Env): Promise<User | nu
 
   const tokenHash = await sha256(token);
   const row = await env.DB.prepare(`
-    SELECT users.id, users.email, users.nickname
+    SELECT users.id, users.email, users.nickname, users.email_language, users.email_reminders_enabled
     FROM sessions
     JOIN users ON users.id = sessions.user_id
     WHERE sessions.token_hash = ? AND sessions.expires_at > ?

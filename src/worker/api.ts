@@ -41,14 +41,17 @@ export async function me(request: Request, env: Env) {
 
 export async function updateProfile(request: Request, env: Env) {
   const user = await requireUser(request, env);
-  const { nickname } = await readJson<{ nickname?: string }>(request);
+  const { nickname, emailLanguage, emailRemindersEnabled } = await readJson<{ nickname?: string; emailLanguage?: string; emailRemindersEnabled?: boolean }>(request);
   const clean = nickname?.trim();
   if (!clean || clean.length < 3 || clean.length > 13) return badRequest("Pseudo must be between 3 and 13 characters.");
+  const language = emailLanguage === "fr" ? "fr" : "en";
+  const remindersEnabled = emailRemindersEnabled === false ? 0 : 1;
   if (!user) {
     const pending = await pendingSignupEmail(request, env);
     if (!pending) return badRequest("Not authenticated.", 401);
     if (await isNicknameTaken(env, clean)) return badRequest("Pseudo already taken.");
     const created = await findOrCreateUser(env, pending.email, clean);
+    await env.DB.prepare("UPDATE users SET email_language = ?, email_reminders_enabled = ?, updated_at = ? WHERE id = ?").bind(language, remindersEnabled, nowIso(), created.id).run();
     const { sessionToken, sessionDays } = await createSession(request, env, created.id);
     await env.DB.prepare("UPDATE pending_signups SET used_at = ? WHERE id = ?").bind(nowIso(), pending.id).run();
     const headers = new Headers({ "Content-Type": "application/json; charset=utf-8" });
@@ -57,7 +60,7 @@ export async function updateProfile(request: Request, env: Env) {
     return new Response(JSON.stringify({ ok: true }), { headers });
   }
   if (await isNicknameTaken(env, clean, user.id)) return badRequest("Pseudo already taken.");
-  await env.DB.prepare("UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?").bind(clean, nowIso(), user.id).run();
+  await env.DB.prepare("UPDATE users SET nickname = ?, email_language = ?, email_reminders_enabled = ?, updated_at = ? WHERE id = ?").bind(clean, language, remindersEnabled, nowIso(), user.id).run();
   return json({ ok: true });
 }
 

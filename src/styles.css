@@ -458,6 +458,15 @@ body{overflow-x:hidden}
 .profile-status{margin:0;padding:.78rem .9rem;border-radius:18px;font-weight:950;text-align:center;border:1px solid transparent;box-shadow:0 12px 24px rgba(6,23,53,.08)}
 .profile-status.is-success{background:#dcfce7;color:#067647;border-color:rgba(31,211,107,.28)}
 .profile-status.is-error{background:#ffe4e8;color:#b4232c;border-color:rgba(255,77,94,.28)}
+.email-preferences{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:.9rem;padding:.9rem;border-radius:20px;background:linear-gradient(135deg,#f4f8ff,#ecfdf3);border:1px solid #dce6f3}
+.email-preferences h3{margin:0 0 .22rem;color:var(--night)}
+.email-preferences p{margin:0;color:#53627a;font-size:.86rem;font-weight:750;line-height:1.35}
+.email-preference-controls{display:flex;align-items:center;justify-content:flex-end;gap:.55rem;flex-wrap:wrap}
+.profile-language-choice{display:inline-flex;align-items:center;gap:.2rem;padding:.18rem;border-radius:999px;background:#fff;border:1px solid rgba(9,24,51,.1)}
+.profile-language-choice button{min-width:2.45rem;min-height:2rem;padding:.38rem .55rem;background:transparent;color:#53627a;border-radius:999px;box-shadow:none}
+.profile-language-choice button.active{background:var(--night);color:#fff}
+.email-reminder-toggle{min-height:2.38rem;margin:0;padding:.48rem .68rem;background:#fff!important}
+.email-reminder-toggle input{width:auto;accent-color:var(--pitch)}
 .ai-insight-button{display:inline-flex;align-items:center;justify-content:center;margin:0 auto .65rem;padding:.42rem .72rem;min-height:2rem;border-radius:999px;background:linear-gradient(90deg,var(--pitch),var(--coral),var(--gold))!important;color:#061735!important;border:1px solid rgba(255,255,255,.62);box-shadow:0 12px 26px rgba(255,77,94,.16),0 8px 18px rgba(31,211,107,.14)!important;font-size:.72rem;font-weight:950}
 .ai-modal{position:relative;width:min(38rem,100%);max-height:min(86vh,46rem);overflow:auto;padding:1.25rem;border-radius:26px;background:linear-gradient(145deg,#fff,#f7fbff);border:1px solid #dce6f3;box-shadow:0 30px 80px rgba(6,23,53,.32)}
 .ai-modal h3{margin:0 2.6rem .75rem 0;font-size:clamp(1.45rem,4vw,2rem);line-height:1.05;color:var(--night)}
@@ -664,4 +673,7 @@ body{overflow-x:hidden}
   .leaderboard-legend strong{font-size:.6rem}
   .lobby-quickstart{grid-template-columns:1fr;gap:.75rem;margin:.15rem 0 .9rem;padding:.95rem!important;border-radius:24px!important}
   .lobby-quickstart button{width:100%;min-width:0}
+  .email-preferences{grid-template-columns:1fr;padding:.78rem}
+  .email-preference-controls{justify-content:stretch}
+  .profile-language-choice,.email-reminder-toggle{width:100%;justify-content:center}
 }

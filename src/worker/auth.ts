@@ -4,6 +4,7 @@ import { sendEmail } from "./email";
 
 type MagicLinkRequest = {
   email?: string;
+  language?: string;
   turnstileToken?: string;
 };
 
@@ -55,6 +56,15 @@ export async function verifyGatewayTurnstile(request: Request, env: Env) {
 }
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 export async function findOrCreateUser(env: Env, email: string, nickname?: string | null) {
@@ -121,7 +131,7 @@ export async function pendingSignupEmail(request: Request, env: Env) {
 }
 
 export async function requestMagicLink(request: Request, env: Env) {
-  const { email, turnstileToken } = await readJson<MagicLinkRequest>(request);
+  const { email, language: requestedLanguage, turnstileToken } = await readJson<MagicLinkRequest>(request);
   const normalizedEmail = email?.trim().toLowerCase();
   if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     return json({ error: "Invalid email address." }, { status: 400 });
@@ -149,9 +159,13 @@ export async function requestMagicLink(request: Request, env: Env) {
   `).bind(crypto.randomUUID(), normalizedEmail, tokenHash, expiresAt, nowIso()).run();
 
   const verifyUrl = `${env.APP_URL}/api/auth/verify?token=${encodeURIComponent(token)}`;
+  const existingPreference = await env.DB.prepare("SELECT email_language FROM users WHERE email = ?")
+    .bind(normalizedEmail)
+    .first<{ email_language: "en" | "fr" | null }>();
+  const emailLanguage = existingPreference?.email_language === "fr" || (!existingPreference && requestedLanguage === "fr") ? "fr" : "en";
 
   try {
-    await sendMagicLinkEmail(env, normalizedEmail, verifyUrl);
+    await sendMagicLinkEmail(env, normalizedEmail, verifyUrl, emailLanguage);
   } catch (error) {
     console.error("Magic link email failed", { to: normalizedEmail, error: errorMessage(error) });
     return json({ error: "Magic link email failed. Check Worker logs and Resend configuration." }, { status: 502 });
@@ -160,9 +174,27 @@ export async function requestMagicLink(request: Request, env: Env) {
   return json({ ok: true });
 }
 
-async function sendMagicLinkEmail(env: Env, to: string, url: string) {
-  const subject = `${env.APP_NAME}: your login link`;
-  const text = `Click this link to sign in to ${env.APP_NAME}: ${url}\n\nThis link expires soon and can only be used once.`;
+async function sendMagicLinkEmail(env: Env, to: string, url: string, language: "en" | "fr") {
+  const appName = env.APP_NAME || "Oddzz";
+  const copy = language === "fr"
+    ? {
+      subject: `${appName}: ton lien de connexion`,
+      eyebrow: "Pronostics Coupe du Monde 2026",
+      title: `Connexion à ${appName}`,
+      intro: "Utilise ce lien magique sécurisé pour continuer. Il expire bientôt et ne peut être utilisé qu'une seule fois.",
+      cta: `Ouvrir ${appName}`,
+      fallback: "Si le bouton ne fonctionne pas, copie ce lien dans ton navigateur :",
+      text: `Clique sur ce lien pour te connecter à ${appName}: ${url}\n\nCe lien expire bientôt et ne peut être utilisé qu'une seule fois.`,
+    }
+    : {
+      subject: `${appName}: your login link`,
+      eyebrow: "World Cup 2026 predictions",
+      title: `Sign in to ${appName}`,
+      intro: "Use this secure magic link to continue. It expires soon and can only be used once.",
+      cta: `Open ${appName}`,
+      fallback: "If the button does not work, paste this link into your browser:",
+      text: `Click this link to sign in to ${appName}: ${url}\n\nThis link expires soon and can only be used once.`,
+    };
   const html = `<!doctype html>
 <html>
   <body style="margin:0;padding:0;background:#f4f8ff;font-family:Arial,Helvetica,sans-serif;color:#091833;">
@@ -172,15 +204,15 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border-radius:22px;border:1px solid #d7e2f0;overflow:hidden;box-shadow:0 18px 44px rgba(6,23,53,0.10);">
             <tr>
               <td style="padding:30px 28px 22px;text-align:center;background:#061735;color:#ffffff;">
-                <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#ff8b98;">World Cup 2026 predictions</div>
-                <h1 style="margin:12px 0 0;font-size:32px;line-height:1.05;">Sign in to ${env.APP_NAME}</h1>
+                <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#ff8b98;">${escapeHtml(copy.eyebrow)}</div>
+                <h1 style="margin:12px 0 0;font-size:32px;line-height:1.05;">${escapeHtml(copy.title)}</h1>
               </td>
             </tr>
             <tr>
               <td style="padding:28px;text-align:center;">
-                <p style="margin:0 0 22px;font-size:16px;line-height:1.55;color:#53627a;">Use this secure magic link to continue. It expires soon and can only be used once.</p>
-                <a href="${url}" style="display:inline-block;padding:14px 24px;border-radius:999px;background:#1fd36b;color:#041225;text-decoration:none;font-weight:800;">Open ${env.APP_NAME}</a>
-                <p style="margin:22px 0 0;font-size:13px;line-height:1.5;color:#667085;">If the button does not work, paste this link into your browser:<br><a href="${url}" style="color:#0f9f50;word-break:break-all;">${url}</a></p>
+                <p style="margin:0 0 22px;font-size:16px;line-height:1.55;color:#53627a;">${escapeHtml(copy.intro)}</p>
+                <a href="${escapeHtml(url)}" style="display:inline-block;padding:14px 24px;border-radius:999px;background:#1fd36b;color:#041225;text-decoration:none;font-weight:800;">${escapeHtml(copy.cta)}</a>
+                <p style="margin:22px 0 0;font-size:13px;line-height:1.5;color:#667085;">${escapeHtml(copy.fallback)}<br><a href="${escapeHtml(url)}" style="color:#0f9f50;word-break:break-all;">${escapeHtml(url)}</a></p>
               </td>
             </tr>
           </table>
@@ -192,8 +224,8 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
 
   await sendEmail(env, {
     to,
-    subject,
-    text,
+    subject: copy.subject,
+    text: copy.text,
     html,
     fromName: env.EMAIL_FROM_NAME,
   });

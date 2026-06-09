@@ -27,6 +27,8 @@ export type User = {
   id: string;
   email: string;
   nickname: string | null;
+  email_language?: "en" | "fr";
+  email_reminders_enabled?: number;
 };
 
 export type MatchRow = {
