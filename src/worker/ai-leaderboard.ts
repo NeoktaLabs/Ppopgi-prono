@@ -54,11 +54,16 @@ function isPreKickoffAiInsight(row: AiInsightRow) {
   return new Date(row.insight_created_at).getTime() <= new Date(row.kickoff_at).getTime();
 }
 
+function matchCountsForBonusUsage(row: AiInsightRow) {
+  return isLiveStatus(row.status) || new Date(row.kickoff_at).getTime() <= Date.now() || usableFinalScore(row) !== null;
+}
+
 function aiBonusMatchIds(rows: AiInsightRow[]) {
   const ids = new Set<string>();
   for (const row of rows.slice().sort((a, b) => new Date(a.kickoff_at).getTime() - new Date(b.kickoff_at).getTime())) {
     if (ids.size >= 2) break;
     if (!isPreKickoffAiInsight(row)) continue;
+    if (!matchCountsForBonusUsage(row)) continue;
     const insight = parseInsightJson(row.insight_json);
     if (canUseAiBonus(row, insight)) ids.add(row.id);
   }
