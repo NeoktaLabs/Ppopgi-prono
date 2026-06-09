@@ -1,5 +1,6 @@
 import type { Env } from "./types";
 import { json } from "./utils";
+import { sendEmail } from "./email";
 
 function digestHtml(appName: string) {
   return `<!doctype html>
@@ -86,28 +87,19 @@ export async function sendDigestPreviewEmail(request: Request, env: Env) {
     "This is a preview email sent to a site administrator. Future digests should be optional and configurable from your Oddzz profile.",
   ].join("\n");
 
-  if (!env.RESEND_API_KEY) return json({ error: "RESEND_API_KEY is not configured." }, { status: 503 });
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: `Oddzz <${env.EMAIL_FROM}>`,
-      to: [to],
-      reply_to: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
+  try {
+    const resend = await sendEmail(env, {
+      to,
       subject,
       text,
       html: digestHtml(appName),
+      fromName: "Oddzz",
       headers: {
         "List-Unsubscribe": `<mailto:${env.EMAIL_REPLY_TO || env.EMAIL_FROM}?subject=unsubscribe>`,
       },
-    }),
-  });
-
-  const payload = await response.text();
-  if (!response.ok) return json({ error: `Resend failed (${response.status})`, details: payload }, { status: 502 });
-  return json({ ok: true, to, resend: JSON.parse(payload) });
+    });
+    return json({ ok: true, to, resend });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Resend failed." }, { status: 502 });
+  }
 }

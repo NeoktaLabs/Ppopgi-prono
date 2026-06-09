@@ -43,6 +43,7 @@ import {
   startAiFootballRefreshJob,
 } from "./ai";
 import { sendDigestPreviewEmail } from "./digest-email";
+import { sendDailyPredictionReminders } from "./prediction-reminders";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -191,6 +192,9 @@ export default {
     }
     if (event.cron === "*/1 * * * *") {
       ctx.waitUntil(processAiFootballRefreshQueue(env));
+    }
+    if (event.cron === "0 6 * * *") {
+      ctx.waitUntil(sendDailyPredictionReminders(env));
     }
     ctx.waitUntil(scheduledSync(env));
   },

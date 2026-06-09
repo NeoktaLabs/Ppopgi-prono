@@ -1,5 +1,6 @@
 import type { Env, User } from "./types";
 import { addDays, addMinutes, clearSessionCookie, getCookie, json, nowIso, randomToken, readJson, sessionCookie, sha256 } from "./utils";
+import { sendEmail } from "./email";
 
 type MagicLinkRequest = {
   email?: string;
@@ -189,31 +190,13 @@ async function sendMagicLinkEmail(env: Env, to: string, url: string) {
   </body>
 </html>`;
 
-  if (!env.RESEND_API_KEY) {
-    throw new Error("RESEND_API_KEY is not configured.");
-  }
-
-  const payload = {
-    from: env.EMAIL_FROM_NAME ? `${env.EMAIL_FROM_NAME} <${env.EMAIL_FROM}>` : env.EMAIL_FROM,
-    to: [to],
-    reply_to: env.EMAIL_REPLY_TO || env.EMAIL_FROM,
+  await sendEmail(env, {
+    to,
     subject,
     text,
     html,
-  };
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
+    fromName: env.EMAIL_FROM_NAME,
   });
-
-  if (!response.ok) {
-    throw new Error(`Resend email failed (${response.status}): ${await response.text()}`);
-  }
 }
 
 export async function verifyMagicLink(request: Request, env: Env) {
