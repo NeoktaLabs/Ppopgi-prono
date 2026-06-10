@@ -1590,19 +1590,6 @@ export async function fixtureAiInsight(request: Request, env: Env, matchId: stri
   return result instanceof Response ? result : json({ ...result, insight: publicInsight(result.insight) });
 }
 
-async function latestCachedInsight(env: Env, matchId: string, language: InsightLanguage, kickoffAt: string) {
-  const freshAfter = new Date(Date.now() - AI_DATASET_CACHE_TTL_SECONDS * 1000).toISOString();
-  return env.DB.prepare(`
-    SELECT insight_json, updated_at, stats_json FROM ai_fixture_insights
-    WHERE match_id = ?
-      AND json_extract(stats_json, '$.prompt_version') = ?
-      AND json_extract(stats_json, '$.language') = ?
-      AND created_at <= ?
-      AND updated_at >= ?
-    ORDER BY updated_at DESC LIMIT 1
-  `).bind(matchId, INSIGHT_PROMPT_VERSION, language, kickoffAt, freshAfter).first<{ insight_json: string; updated_at: string; stats_json: string }>();
-}
-
 async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, language: InsightLanguage, stats: Awaited<ReturnType<typeof buildStatsSnapshot>>) {
   const statsJson = JSON.stringify({ prompt_version: INSIGHT_PROMPT_VERSION, language, stats });
   const statsHash = await sha256(statsJson);
@@ -1634,23 +1621,19 @@ async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, langu
 
 async function refreshFixtureScoutingDatasets(env: Env, match: MatchRow) {
   await Promise.all([
-    fetchApiFootball(env, "/predictions", { fixture: match.external_id }).catch(() => null),
-    fetchApiFootball(env, "/injuries", { fixture: match.external_id }).catch(() => null),
-    fetchApiFootball(env, "/odds", { fixture: match.external_id }).catch(() => null),
+    fetchApiFootball(env, "/predictions", { fixture: match.external_id }, { bypassCache: true }).catch(() => null),
+    fetchApiFootball(env, "/injuries", { fixture: match.external_id }, { bypassCache: true }).catch(() => null),
+    fetchApiFootball(env, "/odds", { fixture: match.external_id }, { bypassCache: true }).catch(() => null),
   ]);
 }
 
 async function cachedOrGenerateInsight(env: Env, match: MatchRow, language: InsightLanguage) {
-  const cached = await latestCachedInsight(env, match.id, language, match.kickoff_at);
-  if (cached) {
-    const parsedStats = JSON.parse(cached.stats_json) as { stats?: { source?: string } };
-    return { insight: JSON.parse(cached.insight_json), cached: true, updated_at: cached.updated_at, stats_source: parsedStats.stats?.source ?? "cached" };
-  }
   if (new Date(match.kickoff_at).getTime() <= Date.now()) {
     return badRequest("OddzzAI predictions are only generated before kickoff.", 409);
   }
   await refreshFixtureScoutingDatasets(env, match);
-  return cachedOrGenerateInsightFromStats(env, match, language, await buildStatsSnapshot(env, match, { allowProviderFetch: false }));
+  const stats = await buildStatsSnapshot(env, match, { allowProviderFetch: false });
+  return cachedOrGenerateInsightFromStats(env, match, language, stats);
 }
 
 export async function scheduledAiInsightRefresh(env: Env) {
