@@ -389,7 +389,7 @@ async function fetchApiFootball<T = any>(
   }
   const payload = await fetchApiFootballFromProvider<T>(env, path, cleanParams);
   if (payload) await persistApiFootballDataset(env, cacheKey, path, cleanParams, payload, ttlSeconds);
-  return payload;
+  return payload ?? await readApiFootballDataset<T>(env, path, cleanParams);
 }
 
 async function getApiFootball<T = any>(
