@@ -462,11 +462,11 @@ body{overflow-x:hidden}
 .email-preferences h3{margin:0 0 .22rem;color:var(--night)}
 .email-preferences p{margin:0;color:#53627a;font-size:.86rem;font-weight:750;line-height:1.35}
 .email-preference-controls{display:flex;align-items:center;justify-content:flex-end;gap:.55rem;flex-wrap:wrap}
-.profile-language-block{display:grid;gap:.25rem}
-.profile-language-block>span{color:#53627a;font-size:.68rem;font-weight:950;letter-spacing:.08em;text-transform:uppercase}
-.profile-language-choice{display:inline-flex;align-items:center;gap:.2rem;padding:.18rem;border-radius:999px;background:#fff;border:1px solid rgba(9,24,51,.1)}
-.profile-language-choice button{min-width:4.8rem;min-height:2rem;padding:.38rem .62rem;background:transparent;color:#53627a;border-radius:999px;box-shadow:none}
-.profile-language-choice button.active{background:var(--night);color:#fff}
+.profile-language-block{display:grid;gap:.28rem}
+.profile-language-block>span{color:#53627a;font-size:.66rem;font-weight:950;letter-spacing:.08em;text-transform:uppercase}
+.profile-language-choice{display:inline-flex;align-items:center;gap:.16rem;width:max-content;padding:.16rem;border-radius:999px;background:rgba(255,255,255,.82);border:1px solid rgba(9,24,51,.1);box-shadow:inset 0 1px 0 rgba(255,255,255,.85)}
+.profile-language-choice button{min-width:4.15rem;min-height:1.82rem;padding:.28rem .52rem;background:transparent;color:#53627a;border-radius:999px;box-shadow:none;font-size:.76rem;font-weight:900;letter-spacing:.01em}
+.profile-language-choice button.active{background:var(--night);color:#fff;box-shadow:0 5px 12px rgba(4,18,37,.12)}
 .email-reminder-toggle{min-height:2.38rem;margin:0;padding:.48rem .68rem;background:#fff!important}
 .email-reminder-toggle input{width:auto;accent-color:var(--pitch)}
 .ai-insight-button{display:inline-flex;align-items:center;justify-content:center;margin:0 auto .65rem;padding:.42rem .72rem;min-height:2rem;border-radius:999px;background:linear-gradient(90deg,var(--pitch),var(--coral),var(--gold))!important;color:#061735!important;border:1px solid rgba(255,255,255,.62);box-shadow:0 12px 26px rgba(255,77,94,.16),0 8px 18px rgba(31,211,107,.14)!important;font-size:.72rem;font-weight:950}
