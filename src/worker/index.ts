@@ -45,6 +45,7 @@ import {
 } from "./ai";
 import { sendDigestPreviewEmail } from "./digest-email";
 import { sendDailyPredictionReminders, sendPredictionReminderPreviewEmail } from "./prediction-reminders";
+import { sendPendingWelcomeEmails, sendWelcomePreviewEmail } from "./welcome-email";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -120,6 +121,18 @@ async function handleApi(request: Request, env: Env) {
     const admin = await requireGlobalAdmin(request, env);
     if (admin.error) return admin.error;
     return sendPredictionReminderPreviewEmail(request, env);
+  }
+
+  if (request.method === "POST" && (pathname === "/api/admin/test/kickoff-email" || pathname === "/api/admin/test/welcome-email")) {
+    const admin = await requireGlobalAdmin(request, env);
+    if (admin.error) return admin.error;
+    return sendWelcomePreviewEmail(request, env);
+  }
+
+  if (request.method === "POST" && (pathname === "/api/admin/emails/kickoff" || pathname === "/api/admin/emails/welcome")) {
+    const admin = await requireGlobalAdmin(request, env);
+    if (admin.error) return admin.error;
+    return json(await sendPendingWelcomeEmails(env));
   }
 
   if (request.method === "POST" && pathname === "/api/admin/ai/hydrate") {
