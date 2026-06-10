@@ -21,45 +21,87 @@ function escapeHtml(value: string) {
 function kickoffCopy(language: "en" | "fr", nickname: string | null, appName: string) {
   return language === "fr"
     ? {
-      subject: `La Coupe du Monde commence sur ${appName}`,
+      subject: `${appName} - Que la Coupe du Monde commence !`,
       eyebrow: "Coup d'envoi Coupe du Monde 2026",
-      title: `${nickname || "Salut"}, merci d'avoir rejoint ${appName}`,
-      intro: "Petit message avant que le jeu commence vraiment. Au départ, Oddzz n'était pas prévu pour devenir un site public : c'était surtout un projet perso, une façon de m'amuser, de découvrir ce qu'on peut construire avec l'IA, et de recréer un jeu de pronos simple, sans pubs partout.",
-      body: `Maintenant que la Coupe du Monde démarre, j'espère surtout que ${appName} vous donnera une bonne excuse pour chambrer gentiment vos collègues, vos amis ou votre famille, tenter quelques scores osés, et suivre le classement avec un peu trop de sérieux.`,
-      invite: "Si tu veux agrandir ta ligue, c'est encore le bon moment pour partager ton code et inviter d'autres joueurs avant les premiers matchs.",
+      title: "Que la Coupe du Monde commence !",
+      greeting: "Bonjour à tous,",
+      paragraphs: [
+        `À la veille du coup d'envoi de la Coupe du Monde, je voulais prendre un moment pour vous remercier d'avoir rejoint ${appName}.`,
+        `Pour être honnête, ${appName} n'était pas censé devenir un “vrai” projet. Il y a quelques mois, je l'ai commencé surtout par curiosité. Je voulais découvrir ce qu'il était possible de construire avec des outils de code assisté par IA, malgré mon expérience limitée en développement.`,
+        "Ce qui n'était au départ qu'une simple expérimentation s'est peu à peu transformé en quelque chose de plus grand : une plateforme de pronostics où amis, familles et collègues peuvent s'affronter, comparer leurs classements, créer des ligues privées et vivre le tournoi ensemble.",
+        "Aujourd'hui, nous sommes presque 50 joueurs, bien plus que ce que j'imaginais lorsque j'ai écrit les premiers prompts. Voir des personnes s'inscrire, créer des ligues et commencer à faire leurs pronostics a été incroyablement motivant. Plus que tout, cela m'a montré à quel point l'IA peut ouvrir de nouvelles portes et permettre de transformer des idées en réalité beaucoup plus vite qu'avant.",
+        "Alors merci de faire partie de cette aventure, et merci d'avoir fait suffisamment confiance à ce petit projet pour l'essayer.",
+        "Comme pour tout nouveau projet, il peut encore y avoir quelques bugs, petits soucis ou surprises inattendues en chemin. Si quelque chose ne fonctionne pas comme prévu, dites-le-moi. Je suis pleinement engagé à corriger rapidement les problèmes et à améliorer la plateforme tout au long du tournoi.",
+        "Mais assez parlé de technologie : la Coupe du Monde est enfin là !",
+        "Bonne chance pour vos pronostics, profitez bien des matchs, n'oubliez pas d'enregistrer vos scores avant le coup d'envoi, et que le meilleur pronostiqueur gagne.",
+        "Rendez-vous sur le classement !",
+        "Julien",
+      ],
       cta: `Ouvrir ${appName}`,
-      footer: "Merci d'être là, et bons pronos.",
       text: [
-        `${nickname || "Salut"}, merci d'avoir rejoint ${appName}.`,
+        "Bonjour à tous,",
         "",
-        "Petit message avant que le jeu commence vraiment. Au départ, Oddzz n'était pas prévu pour devenir un site public : c'était surtout un projet perso, une façon de m'amuser, de découvrir ce qu'on peut construire avec l'IA, et de recréer un jeu de pronos simple, sans pubs partout.",
+        `À la veille du coup d'envoi de la Coupe du Monde, je voulais prendre un moment pour vous remercier d'avoir rejoint ${appName}.`,
         "",
-        `Maintenant que la Coupe du Monde démarre, j'espère surtout que ${appName} vous donnera une bonne excuse pour chambrer gentiment vos collègues, vos amis ou votre famille, tenter quelques scores osés, et suivre le classement avec un peu trop de sérieux.`,
+        `Pour être honnête, ${appName} n'était pas censé devenir un “vrai” projet. Il y a quelques mois, je l'ai commencé surtout par curiosité. Je voulais découvrir ce qu'il était possible de construire avec des outils de code assisté par IA, malgré mon expérience limitée en développement.`,
         "",
-        "Si tu veux agrandir ta ligue, c'est encore le bon moment pour partager ton code et inviter d'autres joueurs avant les premiers matchs.",
+        "Ce qui n'était au départ qu'une simple expérimentation s'est peu à peu transformé en quelque chose de plus grand : une plateforme de pronostics où amis, familles et collègues peuvent s'affronter, comparer leurs classements, créer des ligues privées et vivre le tournoi ensemble.",
         "",
-        "Merci d'être là, et bons pronos.",
+        "Aujourd'hui, nous sommes presque 50 joueurs, bien plus que ce que j'imaginais lorsque j'ai écrit les premiers prompts. Voir des personnes s'inscrire, créer des ligues et commencer à faire leurs pronostics a été incroyablement motivant. Plus que tout, cela m'a montré à quel point l'IA peut ouvrir de nouvelles portes et permettre de transformer des idées en réalité beaucoup plus vite qu'avant.",
+        "",
+        "Alors merci de faire partie de cette aventure, et merci d'avoir fait suffisamment confiance à ce petit projet pour l'essayer.",
+        "",
+        "Comme pour tout nouveau projet, il peut encore y avoir quelques bugs, petits soucis ou surprises inattendues en chemin. Si quelque chose ne fonctionne pas comme prévu, dites-le-moi. Je suis pleinement engagé à corriger rapidement les problèmes et à améliorer la plateforme tout au long du tournoi.",
+        "",
+        "Mais assez parlé de technologie : la Coupe du Monde est enfin là !",
+        "",
+        "Bonne chance pour vos pronostics, profitez bien des matchs, n'oubliez pas d'enregistrer vos scores avant le coup d'envoi, et que le meilleur pronostiqueur gagne.",
+        "",
+        "Rendez-vous sur le classement !",
+        "",
+        "Julien",
       ].join("\n"),
     }
     : {
-      subject: `The World Cup is starting on ${appName}`,
+      subject: `${appName} - Let the World Cup Begin!`,
       eyebrow: "World Cup 2026 kickoff",
-      title: `${nickname || "Hey"}, thanks for joining ${appName}`,
-      intro: "A quick note before the game really begins. Oddzz was not meant to become a public website at first: it started as a personal project, a way to have fun, explore what AI-assisted coding can do, and rebuild a simple prediction game without ads everywhere.",
-      body: `Now that the World Cup is starting, I mostly hope ${appName} gives you a good reason to tease your friends, colleagues, or family, try a few brave scorelines, and follow the leaderboard with just the right amount of drama.`,
-      invite: "If you want to grow your league, this is still a good time to share your code and invite more players before the first matches.",
+      title: "Let the World Cup Begin!",
+      greeting: "Hello everyone,",
+      paragraphs: [
+        `With the World Cup kicking off tomorrow, I wanted to take a moment to thank all of you for joining ${appName}.`,
+        `${appName} was never supposed to become a “real” project. A few months ago, I started it mostly out of curiosity. I wanted to discover what could be built with the help of AI coding tools, despite having limited coding experience myself.`,
+        "What began as a simple experiment gradually turned into something bigger: a prediction platform where friends, family, and colleagues can compete, compare rankings, create private leagues, and enjoy the tournament together.",
+        "Today, we are almost 50 players, which is far more than I ever expected when I wrote the first prompts. Seeing people sign up, create leagues, and start making predictions has been incredibly motivating. More than anything, it has shown me how AI can open new doors and enable people to turn ideas into reality much faster than ever before.",
+        "So thank you for being part of this adventure and for trusting this little project enough to give it a try.",
+        "As with any new project, there may still be a few glitches, bugs, or unexpected surprises along the way. If something does not work as expected, please let me know. I am fully committed to fixing issues quickly and continuously improving the platform throughout the tournament.",
+        "But enough about the technology: the World Cup is finally here!",
+        "Good luck with your predictions, enjoy the matches, do not forget to submit your scores before kickoff, and may the best forecaster win.",
+        "See you on the leaderboard!",
+        "Julien",
+      ],
       cta: `Open ${appName}`,
-      footer: "Thanks for being here, and good luck with your predictions.",
       text: [
-        `${nickname || "Hey"}, thanks for joining ${appName}.`,
+        "Hello everyone,",
         "",
-        "A quick note before the game really begins. Oddzz was not meant to become a public website at first: it started as a personal project, a way to have fun, explore what AI-assisted coding can do, and rebuild a simple prediction game without ads everywhere.",
+        `With the World Cup kicking off tomorrow, I wanted to take a moment to thank all of you for joining ${appName}.`,
         "",
-        `Now that the World Cup is starting, I mostly hope ${appName} gives you a good reason to tease your friends, colleagues, or family, try a few brave scorelines, and follow the leaderboard with just the right amount of drama.`,
+        `${appName} was never supposed to become a “real” project. A few months ago, I started it mostly out of curiosity. I wanted to discover what could be built with the help of AI coding tools, despite having limited coding experience myself.`,
         "",
-        "If you want to grow your league, this is still a good time to share your code and invite more players before the first matches.",
+        "What began as a simple experiment gradually turned into something bigger: a prediction platform where friends, family, and colleagues can compete, compare rankings, create private leagues, and enjoy the tournament together.",
         "",
-        "Thanks for being here, and good luck with your predictions.",
+        "Today, we are almost 50 players, which is far more than I ever expected when I wrote the first prompts. Seeing people sign up, create leagues, and start making predictions has been incredibly motivating. More than anything, it has shown me how AI can open new doors and enable people to turn ideas into reality much faster than ever before.",
+        "",
+        "So thank you for being part of this adventure and for trusting this little project enough to give it a try.",
+        "",
+        "As with any new project, there may still be a few glitches, bugs, or unexpected surprises along the way. If something does not work as expected, please let me know. I am fully committed to fixing issues quickly and continuously improving the platform throughout the tournament.",
+        "",
+        "But enough about the technology: the World Cup is finally here!",
+        "",
+        "Good luck with your predictions, enjoy the matches, do not forget to submit your scores before kickoff, and may the best forecaster win.",
+        "",
+        "See you on the leaderboard!",
+        "",
+        "Julien",
       ].join("\n"),
     };
 }
@@ -68,6 +110,8 @@ function kickoffHtml(env: Env, user: KickoffEmailUser, language: "en" | "fr") {
   const appName = env.APP_NAME || "Oddzz";
   const copy = kickoffCopy(language, user.nickname, appName);
   const appUrl = env.APP_URL || "https://oddzz.xyz";
+  const paragraphHtml = [copy.greeting, ...copy.paragraphs].map((paragraph) => `
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.65;color:#344054;">${escapeHtml(paragraph)}</p>`).join("");
 
   return `<!doctype html>
 <html>
@@ -84,19 +128,10 @@ function kickoffHtml(env: Env, user: KickoffEmailUser, language: "en" | "fr") {
             </tr>
             <tr>
               <td style="padding:30px;">
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.65;color:#344054;">${escapeHtml(copy.intro)}</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.65;color:#344054;">${escapeHtml(copy.body)}</p>
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:24px 0;border-collapse:collapse;">
-                  <tr>
-                    <td style="padding:18px 20px;border-radius:18px;background:#f4f8ff;border:1px solid #d7e2f0;color:#091833;font-size:16px;line-height:1.55;font-weight:800;">
-                      ${escapeHtml(copy.invite)}
-                    </td>
-                  </tr>
-                </table>
+${paragraphHtml}
                 <div style="text-align:center;margin:28px 0 22px;">
                   <a href="${escapeHtml(appUrl)}" style="display:inline-block;padding:14px 24px;border-radius:999px;background:#1fd36b;color:#041225;text-decoration:none;font-weight:900;">${escapeHtml(copy.cta)}</a>
                 </div>
-                <p style="margin:0;font-size:14px;line-height:1.55;color:#667085;text-align:center;">${escapeHtml(copy.footer)}</p>
               </td>
             </tr>
           </table>
