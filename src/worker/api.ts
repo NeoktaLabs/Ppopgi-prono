@@ -187,6 +187,19 @@ export async function upsertPrediction(request: Request, env: Env, leagueId?: st
   return json({ ok: true });
 }
 
+export async function deletePrediction(request: Request, env: Env, matchId: string, leagueId?: string) {
+  const user = await requireUser(request, env);
+  if (!user) return badRequest("Not authenticated.", 401);
+  if (leagueId) {
+    if (!(await isLeagueMember(env, leagueId, user.id))) return badRequest("You are not a member of this league.", 403);
+  }
+  const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(matchId).first<MatchRow>();
+  if (!match) return badRequest("Match not found.", 404);
+  if (matchLocksPredictions(match)) return badRequest("This match is locked because kickoff has passed or a final score has been set.", 409);
+  await env.DB.prepare("DELETE FROM predictions WHERE user_id = ? AND match_id = ?").bind(user.id, matchId).run();
+  return json({ ok: true });
+}
+
 export async function matchPredictions(request: Request, env: Env, leagueId: string, matchId: string) {
   const user = await requireUser(request, env);
   if (!user) return badRequest("Not authenticated.", 401);

@@ -3,6 +3,7 @@ import { requestMagicLink, verifyMagicLink, logout, verifyGatewayTurnstile, devL
 import { badRequest, json } from "./utils";
 import {
   createLeague,
+  deletePrediction,
   globalLeaderboard,
   globalUserPredictions,
   joinLeague,
@@ -93,6 +94,9 @@ async function handleApi(request: Request, env: Env) {
   const predictionParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/predictions$/);
   if (request.method === "POST" && predictionParams) return upsertPrediction(request, env, predictionParams[0]);
 
+  const deleteLeaguePredictionParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/predictions\/([^/]+)$/);
+  if (request.method === "DELETE" && deleteLeaguePredictionParams) return deletePrediction(request, env, deleteLeaguePredictionParams[1], deleteLeaguePredictionParams[0]);
+
   const matchPredictionParams = routeParams(pathname, /^\/api\/leagues\/([^/]+)\/matches\/([^/]+)\/predictions$/);
   if (request.method === "GET" && matchPredictionParams) return matchPredictions(request, env, matchPredictionParams[0], matchPredictionParams[1]);
 
@@ -145,6 +149,9 @@ async function handleApi(request: Request, env: Env) {
   if (request.method === "GET" && pathname === "/api/worldcup/today") return todayMatches(env);
   if (request.method === "GET" && pathname === "/api/predictions/me") return myPredictions(request, env);
   if (request.method === "POST" && pathname === "/api/predictions") return upsertPrediction(request, env);
+
+  const deletePredictionParams = routeParams(pathname, /^\/api\/predictions\/([^/]+)$/);
+  if (request.method === "DELETE" && deletePredictionParams) return deletePrediction(request, env, deletePredictionParams[0]);
 
   const globalManualScoreParams = routeParams(pathname, /^\/api\/admin\/matches\/([^/]+)\/manual-score$/);
   if (globalManualScoreParams) {
