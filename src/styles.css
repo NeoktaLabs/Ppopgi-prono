@@ -490,6 +490,8 @@ body{overflow-x:hidden}
 .ai-odds-goals{display:flex;align-items:center;justify-content:center;gap:.4rem;flex-wrap:wrap}
 .ai-odds-goals span,.ai-odds-scores strong{padding:.3rem .48rem;border-radius:999px;background:#fff;color:#53627a;font-size:.7rem;font-weight:800}
 .ai-odds-goals strong{color:var(--night)}
+.ai-odds-goals .ai-expected-goals{display:inline-flex;align-items:center;gap:.3rem;border-radius:14px}
+.ai-expected-goals small{color:#667085;font-size:.62rem;font-weight:950;letter-spacing:.04em;text-transform:uppercase}
 .ai-odds-scores{display:flex;align-items:center;justify-content:center;gap:.35rem;flex-wrap:wrap;color:#53627a;font-size:.7rem;font-weight:850}
 .ai-odds-scores strong{color:var(--night)}
 .ai-data-empty,.ai-data-status{margin:.65rem 0 0;padding:.68rem .75rem;border-radius:15px;background:#fff4c7;border:1px solid rgba(255,201,71,.42);color:#75520b;font-size:.76rem;font-weight:850;text-align:center}

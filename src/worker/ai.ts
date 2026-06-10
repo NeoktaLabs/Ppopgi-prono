@@ -894,7 +894,7 @@ function compactOdds(payload: any) {
       over_2_5_probability: roundedProbability(over),
       under_2_5_probability: roundedProbability(under),
       both_teams_score_yes_probability: roundedProbability(average(bttsYes)),
-      expected_range: under !== null && under >= 0.6 ? "0-2 goals" : over !== null && over >= 0.6 ? "3+ goals" : over !== null ? "2-3 goals" : null,
+      expected_range: under !== null && under >= 0.6 ? "0-2 goals" : over !== null && over >= 0.6 ? "3+ goals" : over !== null ? "around 2-3 goals" : null,
     },
     likely_scores: [...exactScores.entries()]
       .map(([score, odds]) => ({ score: score.replace(":", "-"), average_odd: Number((average(odds) ?? 0).toFixed(2)), bookmakers: odds.length }))
