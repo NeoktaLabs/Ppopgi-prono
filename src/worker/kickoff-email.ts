@@ -2,7 +2,7 @@ import type { Env } from "./types";
 import { sendEmail } from "./email";
 import { json, nowIso, readJson } from "./utils";
 
-type WelcomeUser = {
+type KickoffEmailUser = {
   id: string;
   email: string;
   nickname: string | null;
@@ -18,7 +18,7 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#039;");
 }
 
-function welcomeCopy(language: "en" | "fr", nickname: string | null, appName: string) {
+function kickoffCopy(language: "en" | "fr", nickname: string | null, appName: string) {
   return language === "fr"
     ? {
       subject: `La Coupe du Monde commence sur ${appName}`,
@@ -64,9 +64,9 @@ function welcomeCopy(language: "en" | "fr", nickname: string | null, appName: st
     };
 }
 
-function welcomeHtml(env: Env, user: WelcomeUser, language: "en" | "fr") {
+function kickoffHtml(env: Env, user: KickoffEmailUser, language: "en" | "fr") {
   const appName = env.APP_NAME || "Oddzz";
-  const copy = welcomeCopy(language, user.nickname, appName);
+  const copy = kickoffCopy(language, user.nickname, appName);
   const appUrl = env.APP_URL || "https://oddzz.xyz";
 
   return `<!doctype html>
@@ -107,53 +107,53 @@ function welcomeHtml(env: Env, user: WelcomeUser, language: "en" | "fr") {
 </html>`;
 }
 
-function welcomeText(env: Env, user: WelcomeUser, language: "en" | "fr") {
+function kickoffText(env: Env, user: KickoffEmailUser, language: "en" | "fr") {
   const appName = env.APP_NAME || "Oddzz";
   const appUrl = env.APP_URL || "https://oddzz.xyz";
-  const copy = welcomeCopy(language, user.nickname, appName);
+  const copy = kickoffCopy(language, user.nickname, appName);
   return `${copy.text}\n\n${copy.cta}: ${appUrl}`;
 }
 
-export async function sendWelcomeEmailToUser(env: Env, user: WelcomeUser) {
+export async function sendKickoffEmailToUser(env: Env, user: KickoffEmailUser) {
   if (!env.RESEND_API_KEY) {
-    console.warn("Welcome email skipped: RESEND_API_KEY is not configured.");
+    console.warn("Kickoff email skipped: RESEND_API_KEY is not configured.");
     return { ok: false, skipped: "missing_resend_key" };
   }
 
-  const existing = await env.DB.prepare("SELECT id FROM welcome_emails WHERE user_id = ?")
+  const existing = await env.DB.prepare("SELECT id FROM kickoff_emails WHERE user_id = ?")
     .bind(user.id)
     .first<{ id: string }>();
   if (existing) return { ok: true, skipped: "already_sent" };
 
   const language = user.email_language === "fr" ? "fr" : "en";
-  const copy = welcomeCopy(language, user.nickname, env.APP_NAME || "Oddzz");
+  const copy = kickoffCopy(language, user.nickname, env.APP_NAME || "Oddzz");
 
   await sendEmail(env, {
     to: user.email,
     subject: copy.subject,
-    text: welcomeText(env, user, language),
-    html: welcomeHtml(env, user, language),
+    text: kickoffText(env, user, language),
+    html: kickoffHtml(env, user, language),
     fromName: "Oddzz",
   });
 
   await env.DB.prepare(`
-    INSERT INTO welcome_emails (id, user_id, sent_at, language)
+    INSERT INTO kickoff_emails (id, user_id, sent_at, language)
     VALUES (?, ?, ?, ?)
   `).bind(crypto.randomUUID(), user.id, nowIso(), language).run();
 
   return { ok: true, sent: true };
 }
 
-export async function sendPendingWelcomeEmails(env: Env, limit = 200) {
+export async function sendPendingKickoffEmails(env: Env, limit = 200) {
   const rows = await env.DB.prepare(`
     SELECT users.id, users.email, users.nickname, users.email_language
     FROM users
-    LEFT JOIN welcome_emails sent ON sent.user_id = users.id
+    LEFT JOIN kickoff_emails sent ON sent.user_id = users.id
     WHERE users.nickname IS NOT NULL
       AND sent.id IS NULL
     ORDER BY users.created_at ASC
     LIMIT ?
-  `).bind(limit).all<WelcomeUser>();
+  `).bind(limit).all<KickoffEmailUser>();
 
   let sent = 0;
   let skipped = 0;
@@ -161,7 +161,7 @@ export async function sendPendingWelcomeEmails(env: Env, limit = 200) {
 
   for (const user of rows.results ?? []) {
     try {
-      const result = await sendWelcomeEmailToUser(env, user);
+      const result = await sendKickoffEmailToUser(env, user);
       if ("sent" in result && result.sent) sent += 1;
       else skipped += 1;
     } catch (error) {
@@ -172,24 +172,24 @@ export async function sendPendingWelcomeEmails(env: Env, limit = 200) {
   return { ok: errors.length === 0, sent, skipped, errors, considered: rows.results?.length ?? 0 };
 }
 
-export async function sendWelcomePreviewEmail(request: Request, env: Env) {
+export async function sendKickoffPreviewEmail(request: Request, env: Env) {
   const body = await readJson<{ to?: string; language?: "en" | "fr"; nickname?: string }>(request);
   const to = body.to?.trim() || "labs@neokta.com";
   const language = body.language === "fr" ? "fr" : "en";
-  const user: WelcomeUser = {
+  const user: KickoffEmailUser = {
     id: "preview",
     email: to,
     nickname: body.nickname?.trim() || "Julien",
     email_language: language,
   };
-  const copy = welcomeCopy(language, user.nickname, env.APP_NAME || "Oddzz");
+  const copy = kickoffCopy(language, user.nickname, env.APP_NAME || "Oddzz");
 
   try {
     const resend = await sendEmail(env, {
       to,
       subject: `${copy.subject} preview`,
-      text: welcomeText(env, user, language),
-      html: welcomeHtml(env, user, language),
+      text: kickoffText(env, user, language),
+      html: kickoffHtml(env, user, language),
       fromName: "Oddzz",
     });
     return json({ ok: true, to, language, resend });
