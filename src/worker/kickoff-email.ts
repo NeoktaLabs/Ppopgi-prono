@@ -185,16 +185,20 @@ export async function sendKickoffEmailToUser(env: Env, user: KickoffEmailUser) {
   return { ok: true, sent: true };
 }
 
-export async function sendPendingKickoffEmails(env: Env, limit = 200) {
+const KICKOFF_EMAIL_SEND_AT = "2026-06-11T15:00:00.000Z";
+const KICKOFF_EMAIL_SEND_UNTIL = "2026-06-11T22:00:00.000Z";
+
+export async function sendPendingKickoffEmails(env: Env, limit = 200, createdBefore?: string) {
   const rows = await env.DB.prepare(`
     SELECT users.id, users.email, users.nickname, users.email_language
     FROM users
     LEFT JOIN kickoff_emails sent ON sent.user_id = users.id
     WHERE users.nickname IS NOT NULL
       AND sent.id IS NULL
+      AND (? IS NULL OR users.created_at <= ?)
     ORDER BY users.created_at ASC
     LIMIT ?
-  `).bind(limit).all<KickoffEmailUser>();
+  `).bind(createdBefore ?? null, createdBefore ?? null, limit).all<KickoffEmailUser>();
 
   let sent = 0;
   let skipped = 0;
@@ -211,6 +215,17 @@ export async function sendPendingKickoffEmails(env: Env, limit = 200) {
   }
 
   return { ok: errors.length === 0, sent, skipped, errors, considered: rows.results?.length ?? 0 };
+}
+
+export async function sendScheduledKickoffEmails(env: Env, now = new Date()) {
+  const currentTime = now.getTime();
+  const startsAt = new Date(KICKOFF_EMAIL_SEND_AT).getTime();
+  const endsAt = new Date(KICKOFF_EMAIL_SEND_UNTIL).getTime();
+  if (currentTime < startsAt || currentTime > endsAt) {
+    return { ok: true, sent: 0, skipped: "outside_schedule_window" };
+  }
+
+  return sendPendingKickoffEmails(env, 200, KICKOFF_EMAIL_SEND_AT);
 }
 
 export async function sendKickoffPreviewEmail(request: Request, env: Env) {

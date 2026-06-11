@@ -45,7 +45,7 @@ import {
 } from "./ai";
 import { sendDigestPreviewEmail } from "./digest-email";
 import { sendDailyPredictionReminders, sendPredictionReminderPreviewEmail } from "./prediction-reminders";
-import { sendPendingKickoffEmails, sendKickoffPreviewEmail } from "./kickoff-email";
+import { sendPendingKickoffEmails, sendKickoffPreviewEmail, sendScheduledKickoffEmails } from "./kickoff-email";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -218,6 +218,7 @@ export default {
     }
     if (event.cron === "*/1 * * * *") {
       ctx.waitUntil(processAiFootballRefreshQueue(env));
+      ctx.waitUntil(sendScheduledKickoffEmails(env, new Date(event.scheduledTime)));
     }
     if (event.cron === "0 6 * * *") {
       ctx.waitUntil(sendDailyPredictionReminders(env));
