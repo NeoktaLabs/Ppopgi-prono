@@ -25,7 +25,21 @@ type PredictionRow = {
 };
 
 function isLiveStatus(status: string) {
-  return ["live", "in_play", "1h", "2h", "ht", "et", "bt", "p", "penalties", "extra_time"].includes(status.toLowerCase());
+  return ["live", "in_play", "1h", "2h", "ht", "et", "bt", "p", "susp", "int", "penalties", "extra_time"].includes(status.toLowerCase());
+}
+
+function isExpectedLiveWindow(match: MatchRow, now = Date.now()) {
+  const kickoff = new Date(match.kickoff_at).getTime();
+  const status = match.status.toLowerCase();
+  const isFinished = ["finished", "ft", "aet", "pen", "cancelled", "postponed"].includes(status);
+  return kickoff <= now
+    && kickoff >= now - 4 * 60 * 60_000
+    && !isFinished
+    && usableFinalScore(match) === null;
+}
+
+function isLiveOrExpectedLive(match: MatchRow, now = Date.now()) {
+  return isLiveStatus(match.status) || isExpectedLiveWindow(match, now);
 }
 
 function withCorrectMultiplier(match: MatchRow): MatchRow {
@@ -41,11 +55,14 @@ async function officialLeaderboard(env: Env, leagueId: string): Promise<Leaderbo
 }
 
 async function liveMatches(env: Env): Promise<MatchRow[]> {
+  const now = new Date();
+  const expectedLiveSince = new Date(now.getTime() - 4 * 60 * 60_000);
   const rows = await env.DB.prepare(`
     SELECT * FROM matches
-    WHERE status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time')
+    WHERE status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'P', 'SUSP', 'INT', 'penalties', 'extra_time')
+      OR (kickoff_at <= ? AND kickoff_at >= ? AND status NOT IN ('finished', 'FINISHED', 'FT', 'AET', 'PEN', 'cancelled', 'postponed') AND final_home IS NULL AND manual_final_home IS NULL)
     ORDER BY kickoff_at ASC
-  `).all<MatchRow>();
+  `).bind(now.toISOString(), expectedLiveSince.toISOString()).all<MatchRow>();
   return (rows.results ?? []).map(withCorrectMultiplier);
 }
 
@@ -207,20 +224,20 @@ export async function leagueHome(request: Request, env: Env, leagueId: string) {
   const todayRows = await env.DB.prepare(`
     SELECT * FROM matches
     WHERE (kickoff_at >= ? AND kickoff_at < ?)
-      OR status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time')
+      OR status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'P', 'SUSP', 'INT', 'penalties', 'extra_time')
     ORDER BY kickoff_at ASC
   `).bind(todayStart.toISOString(), todayEnd.toISOString()).all<MatchRow>();
 
   const matches = await Promise.all((todayRows.results ?? []).map(withCorrectMultiplier).map(async (match) => ({
     ...match,
-    is_live: isLiveStatus(match.status),
+    is_live: isLiveOrExpectedLive(match),
     effective_home_score: scoreForLiveMatch(match)?.home ?? null,
     effective_away_score: scoreForLiveMatch(match)?.away ?? null,
     predictions: await predictionsForMatch(env, leagueId, match),
   })));
   const hasImminentMatch = matches.some((match) => {
     const kickoffAt = new Date(match.kickoff_at).getTime();
-    return !isLiveStatus(match.status) && kickoffAt >= Date.now() && kickoffAt <= Date.now() + 15 * 60_000;
+    return !isLiveOrExpectedLive(match) && kickoffAt >= Date.now() && kickoffAt <= Date.now() + 15 * 60_000;
   });
 
   return json({
