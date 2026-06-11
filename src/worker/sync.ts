@@ -56,12 +56,26 @@ async function latestSuccessfulSync(env: Env) {
   return row ? new Date(row.created_at).getTime() : 0;
 }
 
+async function oldestLiveSync(env: Env) {
+  const row = await env.DB.prepare(`
+    SELECT MIN(last_live_synced_at) AS last_live_synced_at
+    FROM matches
+    WHERE status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'P', 'SUSP', 'INT', 'penalties', 'extra_time')
+      AND last_live_synced_at IS NOT NULL
+  `).first<{ last_live_synced_at: string | null }>();
+  return row?.last_live_synced_at ? new Date(row.last_live_synced_at).getTime() : 0;
+}
+
 async function shouldCallProvider(env: Env) {
   const now = new Date();
   const latestSyncAt = await latestSuccessfulSync(env);
   const minutesSinceSync = latestSyncAt ? (Date.now() - latestSyncAt) / 60_000 : Infinity;
   const live = await env.DB.prepare(`SELECT id FROM matches WHERE status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'P', 'SUSP', 'INT', 'penalties', 'extra_time') LIMIT 1`).first();
-  if (live) return minutesSinceSync >= 1;
+  if (live) {
+    const latestLiveSyncAt = await oldestLiveSync(env);
+    const minutesSinceLiveSync = latestLiveSyncAt ? (Date.now() - latestLiveSyncAt) / 60_000 : Infinity;
+    return minutesSinceLiveSync >= 1;
+  }
   const imminent = new Date(now.getTime() + 15 * 60_000);
   const upcomingVerySoon = await env.DB.prepare(`SELECT id FROM matches WHERE kickoff_at >= ? AND kickoff_at <= ? AND status NOT IN ('finished', 'FINISHED', 'cancelled', 'postponed') LIMIT 1`).bind(now.toISOString(), imminent.toISOString()).first();
   if (upcomingVerySoon) return minutesSinceSync >= 1;
