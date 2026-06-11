@@ -239,7 +239,12 @@ export async function matchPredictions(request: Request, env: Env, leagueId: str
 
 export async function globalLeaderboard(request: Request, env: Env) {
   if (!(await requireUser(request, env))) return badRequest("Not authenticated.", 401);
-  const leaderboard = await withGlobalLastMatchDeltas(env, await buildGlobalLeaderboard(env));
+  const live = await env.DB.prepare(`
+    SELECT id FROM matches
+    WHERE status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'P', 'SUSP', 'INT', 'penalties', 'extra_time')
+    LIMIT 1
+  `).first();
+  const leaderboard = await withGlobalLastMatchDeltas(env, await buildGlobalLeaderboard(env, !!live));
   return json({ leaderboard });
 }
 
