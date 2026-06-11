@@ -217,6 +217,7 @@ export default {
       return;
     }
     if (event.cron === "*/1 * * * *") {
+      ctx.waitUntil(scheduledSync(env));
       ctx.waitUntil(processAiFootballRefreshQueue(env));
       ctx.waitUntil(sendScheduledKickoffEmails(env, new Date(event.scheduledTime)));
     }
