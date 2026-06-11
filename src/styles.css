@@ -532,7 +532,7 @@ body{overflow-x:hidden}
 .ai-disclaimer{margin:.75rem 0 0;color:#667085;font-size:.78rem;text-align:center}
 .icon-button{align-items:center!important;justify-items:center!important;place-content:center!important}
 .profile-glyph{position:relative;left:0;top:0;transform:translateY(-.02rem)}
-.global-leaderboard-panel{margin-bottom:1rem}
+.global-leaderboard-panel{margin-top:clamp(1.4rem,3vw,2.2rem);margin-bottom:1rem}
 .global-row{width:100%;border:1px solid #dce6f3;cursor:pointer;color:inherit;font:inherit;box-shadow:none}
 .global-row:hover,.global-row.is-selected{outline:2px solid rgba(31,211,107,.24);background:linear-gradient(135deg,rgba(31,211,107,.16),#fff)}
 .leaderboard-row.is-me{box-shadow:0 0 0 2px rgba(31,211,107,.28),0 12px 26px rgba(6,23,53,.08)}
