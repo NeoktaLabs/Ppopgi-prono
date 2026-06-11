@@ -169,8 +169,12 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
   const response = await fetch(`${baseUrl}/fixtures?league=${league}&season=${season}`, { headers: { "x-apisports-key": env.FOOTBALL_API_KEY } });
   if (!response.ok) throw new Error(`API-Football request failed with ${response.status}`);
   const payload = await response.json() as { response?: any[] };
+  const items = [
+    ...(payload.response ?? []),
+    ...(await fetchApiFootballExpectedLiveFixtures(env, baseUrl)),
+  ];
   const venueCache = new Map<number, VenueDetails | null>();
-  return Promise.all((payload.response ?? []).map(async (item) => {
+  return Promise.all(items.map(async (item) => {
     const fixture = item.fixture ?? {};
     const leagueData = item.league ?? {};
     const teams = item.teams ?? {};
@@ -178,7 +182,7 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
     const score = item.score ?? {};
     const status = normalizeStatus(fixture.status?.short, fixture.status?.long);
     const elapsed = typeof fixture.status?.elapsed === "number" ? fixture.status.elapsed : null;
-    const isLive = ["1H", "2H", "HT", "ET", "BT", "P", "penalties", "LIVE"].includes(status);
+    const isLive = ["1H", "2H", "HT", "ET", "BT", "P", "SUSP", "INT", "penalties", "LIVE"].includes(status);
     const venueId = safeNumber(fixture.venue?.id);
     const venueDetails = venueId ? await fetchVenueDetails(baseUrl, env.FOOTBALL_API_KEY!, venueId, venueCache) : null;
     return {
@@ -207,6 +211,31 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
       finalAway: ["finished"].includes(status) ? goals.away ?? null : null,
     };
   }));
+}
+
+async function fetchApiFootballExpectedLiveFixtures(env: Env, baseUrl: string) {
+  const now = new Date();
+  const expectedLiveSince = new Date(now.getTime() - 4 * 60 * 60_000);
+  const rows = await env.DB.prepare(`
+    SELECT external_id
+    FROM matches
+    WHERE kickoff_at <= ?
+      AND kickoff_at >= ?
+      AND status NOT IN ('finished', 'FINISHED', 'FT', 'AET', 'PEN', 'cancelled', 'postponed')
+      AND final_home IS NULL
+      AND manual_final_home IS NULL
+    ORDER BY kickoff_at ASC
+    LIMIT 8
+  `).bind(now.toISOString(), expectedLiveSince.toISOString()).all<{ external_id: string }>();
+
+  const fixtures: any[] = [];
+  for (const row of rows.results ?? []) {
+    const response = await fetch(`${baseUrl}/fixtures?id=${encodeURIComponent(row.external_id)}`, { headers: { "x-apisports-key": env.FOOTBALL_API_KEY! } });
+    if (!response.ok) continue;
+    const payload = await response.json() as { response?: any[] };
+    fixtures.push(...(payload.response ?? []));
+  }
+  return fixtures;
 }
 
 async function recalculateFinishedMatches(env: Env) {
