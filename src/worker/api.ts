@@ -159,6 +159,41 @@ function parseScore(value: unknown) {
   return Number.isInteger(value) && typeof value === "number" && value >= 0 ? value : null;
 }
 
+async function logPredictionAudit(env: Env, input: {
+  predictionId?: string | null;
+  userId: string;
+  matchId: string;
+  action: "create" | "update" | "delete";
+  oldHomeScore?: number | null;
+  oldAwayScore?: number | null;
+  oldBonusUsed?: number | null;
+  newHomeScore?: number | null;
+  newAwayScore?: number | null;
+  newBonusUsed?: number | null;
+}) {
+  await env.DB.prepare(`
+    INSERT INTO prediction_audit_logs (
+      id, prediction_id, user_id, match_id, action,
+      old_home_score, old_away_score, old_bonus_used,
+      new_home_score, new_away_score, new_bonus_used,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    crypto.randomUUID(),
+    input.predictionId ?? null,
+    input.userId,
+    input.matchId,
+    input.action,
+    input.oldHomeScore ?? null,
+    input.oldAwayScore ?? null,
+    input.oldBonusUsed ?? null,
+    input.newHomeScore ?? null,
+    input.newAwayScore ?? null,
+    input.newBonusUsed ?? null,
+    nowIso(),
+  ).run();
+}
+
 export async function upsertPrediction(request: Request, env: Env, leagueId?: string) {
   const user = await requireUser(request, env);
   if (!user) return badRequest("Not authenticated.", 401);
@@ -178,11 +213,15 @@ export async function upsertPrediction(request: Request, env: Env, leagueId?: st
     const usage = await env.DB.prepare("SELECT COUNT(DISTINCT predictions.match_id) as count FROM predictions JOIN matches ON matches.id = predictions.match_id WHERE predictions.user_id = ? AND predictions.bonus_used = 1 AND predictions.match_id != ? AND LOWER(COALESCE(matches.stage, '')) LIKE '%group%'").bind(user.id, body.matchId).first<{ count: number }>();
     if (Number(usage?.count ?? 0) >= 2) return badRequest("You have already used your two group-stage x5 bonuses.", 409);
   }
-  const existing = await env.DB.prepare("SELECT id FROM predictions WHERE user_id = ? AND match_id = ? LIMIT 1").bind(user.id, body.matchId).first<{ id: string }>();
+  const existing = await env.DB.prepare("SELECT id, home_score, away_score, bonus_used FROM predictions WHERE user_id = ? AND match_id = ? LIMIT 1").bind(user.id, body.matchId).first<{ id: string; home_score: number; away_score: number; bonus_used: number }>();
   if (existing) {
     await env.DB.prepare("UPDATE predictions SET home_score = ?, away_score = ?, bonus_used = ?, updated_at = ? WHERE user_id = ? AND match_id = ?").bind(homeScore, awayScore, useBonus ? 1 : 0, nowIso(), user.id, body.matchId).run();
+    await logPredictionAudit(env, { predictionId: existing.id, userId: user.id, matchId: body.matchId, action: "update", oldHomeScore: existing.home_score, oldAwayScore: existing.away_score, oldBonusUsed: existing.bonus_used, newHomeScore: homeScore, newAwayScore: awayScore, newBonusUsed: useBonus ? 1 : 0 });
   } else {
-    await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, bonus_used, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), leagueId ?? null, user.id, body.matchId, homeScore, awayScore, useBonus ? 1 : 0, nowIso(), nowIso()).run();
+    const predictionId = crypto.randomUUID();
+    const now = nowIso();
+    await env.DB.prepare(`INSERT INTO predictions (id, league_id, user_id, match_id, home_score, away_score, bonus_used, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(predictionId, leagueId ?? null, user.id, body.matchId, homeScore, awayScore, useBonus ? 1 : 0, now, now).run();
+    await logPredictionAudit(env, { predictionId, userId: user.id, matchId: body.matchId, action: "create", newHomeScore: homeScore, newAwayScore: awayScore, newBonusUsed: useBonus ? 1 : 0 });
   }
   return json({ ok: true });
 }
@@ -196,7 +235,9 @@ export async function deletePrediction(request: Request, env: Env, matchId: stri
   const match = await env.DB.prepare("SELECT * FROM matches WHERE id = ?").bind(matchId).first<MatchRow>();
   if (!match) return badRequest("Match not found.", 404);
   if (matchLocksPredictions(match)) return badRequest("This match is locked because kickoff has passed or a final score has been set.", 409);
+  const existing = await env.DB.prepare("SELECT id, home_score, away_score, bonus_used FROM predictions WHERE user_id = ? AND match_id = ? LIMIT 1").bind(user.id, matchId).first<{ id: string; home_score: number; away_score: number; bonus_used: number }>();
   await env.DB.prepare("DELETE FROM predictions WHERE user_id = ? AND match_id = ?").bind(user.id, matchId).run();
+  if (existing) await logPredictionAudit(env, { predictionId: existing.id, userId: user.id, matchId, action: "delete", oldHomeScore: existing.home_score, oldAwayScore: existing.away_score, oldBonusUsed: existing.bonus_used });
   return json({ ok: true });
 }
 
