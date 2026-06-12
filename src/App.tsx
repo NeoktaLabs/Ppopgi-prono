@@ -155,9 +155,13 @@ function GlobalLeaderboard({ rows, predictions, selectedUserId, currentUserId, l
   const aiRow = rows.find((row) => row.is_ai);
   const visibleRows = !expanded && aiRow && !baseVisibleRows.some((row) => row.user_id === aiRow.user_id) ? [...baseVisibleRows, aiRow] : baseVisibleRows;
   const showMeRow = !!me && me.rank > visibleLimit && !visibleRows.some((row) => row.user_id === me.user_id);
+  const otherPlayerCount = Math.max(0, rows.length - (currentUserId && rows.some((row) => row.user_id === currentUserId) ? 1 : 0));
+  const intro = language === "fr"
+    ? `Compare ton score avec ${otherPlayerCount} autre${otherPlayerCount > 1 ? "s" : ""} joueur${otherPlayerCount > 1 ? "s" : ""} inscrit${otherPlayerCount > 1 ? "s" : ""} sur Oddzz.`
+    : `Compare your score against ${otherPlayerCount} other registered Oddzz player${otherPlayerCount === 1 ? "" : "s"}.`;
   const labels = language === "fr"
-    ? { title: "Classement global", intro: "Compare-toi avec tous les joueurs inscrits sur Oddzz.", empty: "Aucun joueur pour le moment.", details: "Pronostics visibles", pick: "Prono", show: "Voir le top 50", collapse: "Réduire au top 10" }
-    : { title: "Global leaderboard", intro: "Compare your score with every registered Oddzz player.", empty: "No players yet.", details: "Visible predictions", pick: "Pick", show: "Show top 50", collapse: "Collapse to top 10" };
+    ? { title: "Classement global", intro, empty: "Aucun joueur pour le moment.", details: "Pronostics visibles", pick: "Prono", show: "Voir le top 50", collapse: "Réduire au top 10" }
+    : { title: "Global leaderboard", intro, empty: "No players yet.", details: "Visible predictions", pick: "Pick", show: "Show top 50", collapse: "Collapse to top 10" };
   const renderRow = (row: LeaderboardRow, extra = "") => <button className={`leaderboard-row global-row rank-${row.rank} ${row.user_id === currentUserId ? "is-me" : ""} ${row.user_id === selectedUserId ? "is-selected" : ""} ${row.is_ai ? "is-ai" : ""} ${extra}`} key={`${extra}-${row.user_id}`} onClick={() => onSelect(row)}><span className="rank">#{row.rank}</span><strong>{row.nickname ?? "—"}</strong><span>{row.exact_scores}</span><span>{row.bonuses_remaining}</span><span>{row.points} {t.points}</span><Movement delta={row.rank_delta} /></button>;
   const modal = selected && createPortal(
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${labels.details}: ${selected.nickname ?? "—"}`}>
