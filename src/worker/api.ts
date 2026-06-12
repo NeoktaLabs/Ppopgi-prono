@@ -301,16 +301,16 @@ export async function globalUserPredictions(request: Request, env: Env, userId: 
     )
     SELECT matches.id as match_id, matches.external_id, matches.home_team, matches.away_team, matches.home_team_logo, matches.away_team_logo, matches.kickoff_at, matches.stage, matches.group_name, matches.status, matches.final_home, matches.final_away, matches.score_90_home, matches.score_90_away, matches.score_120_home, matches.score_120_away, matches.manual_final_home, matches.manual_final_away, matches.score_source, matches.live_home_score, matches.live_away_score, matches.live_minute, matches.points_multiplier, global_predictions.home_score, global_predictions.away_score, global_predictions.points, global_predictions.bonus_used
     FROM matches
-    JOIN global_predictions ON global_predictions.match_id = matches.id
+    LEFT JOIN global_predictions ON global_predictions.match_id = matches.id
     WHERE matches.status IN ('live', 'in_play', 'LIVE', '1H', '2H', 'HT', 'ET', 'BT', 'penalties', 'extra_time') OR matches.kickoff_at <= ? OR matches.final_home IS NOT NULL OR matches.manual_final_home IS NOT NULL
     ORDER BY matches.kickoff_at DESC
-  `).bind(userId, nowIso()).all<MatchRow & { match_id: string; home_score: number; away_score: number; points: number | null; bonus_used: number | null }>();
+  `).bind(userId, nowIso()).all<MatchRow & { match_id: string; home_score: number | null; away_score: number | null; points: number | null; bonus_used: number | null }>();
   return json({ predictions: (rows.results ?? []).map((row) => {
     const isLive = ["live", "in_play", "1h", "2h", "ht", "et", "bt", "p", "penalties", "extra_time"].includes(row.status.toLowerCase());
     const score = isLive && row.live_home_score !== null && row.live_away_score !== null
       ? { home: row.live_home_score, away: row.live_away_score }
       : usableFinalScore(row);
-    const currentPoints = score
+    const currentPoints = score && row.home_score != null && row.away_score != null
       ? calculatePredictionPoints({ predictedHome: row.home_score, predictedAway: row.away_score, finalHome: score.home, finalAway: score.away, multiplier: row.points_multiplier, bonusMultiplier: row.bonus_used && isGroupStage(row.stage) ? 5 : 1 }).points
       : row.points;
     return { ...row, points: currentPoints };
