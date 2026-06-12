@@ -196,6 +196,8 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
     const score = item.score ?? {};
     const status = normalizeStatus(fixture.status?.short, fixture.status?.long);
     const elapsed = typeof fixture.status?.elapsed === "number" ? fixture.status.elapsed : null;
+    const extra = typeof fixture.status?.extra === "number" ? fixture.status.extra : null;
+    const liveMinute = elapsed == null ? null : elapsed + Math.max(extra ?? 0, 0);
     const isLive = ["1H", "2H", "HT", "ET", "BT", "P", "SUSP", "INT", "penalties", "LIVE"].includes(status);
     const venueId = safeNumber(fixture.venue?.id);
     const venueDetails = venueId ? await fetchVenueDetails(baseUrl, env.FOOTBALL_API_KEY!, venueId, venueCache) : null;
@@ -214,7 +216,7 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
       status,
       liveHomeScore: isLive ? goals.home ?? null : null,
       liveAwayScore: isLive ? goals.away ?? null : null,
-      liveMinute: isLive ? elapsed : null,
+      liveMinute: isLive ? liveMinute : null,
       score90Home: score.fulltime?.home ?? null,
       score90Away: score.fulltime?.away ?? null,
       score120Home: score.extratime?.home ?? null,
