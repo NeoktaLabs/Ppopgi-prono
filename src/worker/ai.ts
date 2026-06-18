@@ -90,7 +90,7 @@ type TeamFormHistory = {
   };
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-04-scorecard-v36-data-availability";
+const INSIGHT_PROMPT_VERSION = "2026-06-18-scorecard-v37-provider-prediction-depth";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
@@ -931,6 +931,12 @@ function parsePercent(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function sideLabel(side: "home" | "draw" | "away", homeTeam: string, awayTeam: string) {
+  if (side === "home") return homeTeam;
+  if (side === "away") return awayTeam;
+  return "draw";
+}
+
 function signalValue(signal: ScoreSignal) {
   if (signal === "home") return 1;
   if (signal === "away") return -1;
@@ -961,11 +967,50 @@ function matchWinnerOddsSignal(odds: any, homeTeam: string, awayTeam: string) {
   };
 }
 
+function apiPredictionComparisonSignal(comparison: any, homeTeam: string, awayTeam: string) {
+  const categories = [
+    ["form", 0.24, "form"],
+    ["att", 0.17, "attack"],
+    ["def", 0.17, "defence"],
+    ["poisson_distribution", 0.17, "Poisson"],
+    ["goals", 0.1, "goals"],
+    ["h2h", 0.08, "H2H"],
+    ["total", 0.07, "overall"],
+  ] as const;
+  let homeScore = 0;
+  let awayScore = 0;
+  let totalWeight = 0;
+  const used: string[] = [];
+
+  for (const [key, weight, label] of categories) {
+    const home = parsePercent(comparison?.[key]?.home);
+    const away = parsePercent(comparison?.[key]?.away);
+    if (home === null || away === null) continue;
+    homeScore += home * weight;
+    awayScore += away * weight;
+    totalWeight += weight;
+    used.push(label);
+  }
+
+  if (!totalWeight) return null;
+  const homeAvg = homeScore / totalWeight;
+  const awayAvg = awayScore / totalWeight;
+  const diff = homeAvg - awayAvg;
+  const signal = Math.abs(diff) < 6 ? "balanced" as ScoreSignal : diff > 0 ? "home" as ScoreSignal : "away" as ScoreSignal;
+  const label = signal === "home" || signal === "away" ? sideLabel(signal, homeTeam, awayTeam) : "balanced";
+  return {
+    signal,
+    edge: diff,
+    reason: `API-Football comparison metrics (${used.join(", ")}) are ${signal === "balanced" ? "balanced" : `tilted toward ${label}`} (${homeTeam} ${homeAvg.toFixed(1)} vs ${awayTeam} ${awayAvg.toFixed(1)}).`,
+  };
+}
+
 function apiPredictionSignal(prediction: any, homeTeam: string, awayTeam: string) {
   const percent = prediction?.percent ?? prediction?.predictions?.percent;
   const home = parsePercent(percent?.home);
   const draw = parsePercent(percent?.draw);
   const away = parsePercent(percent?.away);
+  const comparison = apiPredictionComparisonSignal(prediction?.comparison, homeTeam, awayTeam);
   if (home !== null && draw !== null && away !== null) {
     const ranked: Array<["home" | "draw" | "away", number]> = [
       ["home", home],
@@ -974,15 +1019,32 @@ function apiPredictionSignal(prediction: any, homeTeam: string, awayTeam: string
     ];
     ranked.sort((a, b) => b[1] - a[1]);
     const [best, second] = ranked;
+    const percentSignal = best[1] - second[1] < 6 ? "balanced" as ScoreSignal : best[0];
+    const signal = percentSignal === "balanced" && comparison && comparison.signal !== "balanced"
+      ? comparison.signal
+      : percentSignal;
+    const leaderLabel = percentSignal === "balanced"
+      ? `${homeTeam} ${home}%, draw ${draw}%, ${awayTeam} ${away}%`
+      : `${sideLabel(best[0], homeTeam, awayTeam)} (${best[1]}%)`;
+    const reason = [
+      percentSignal === "balanced"
+        ? `API-Football result probabilities are balanced (${leaderLabel}).`
+        : `API-Football result probabilities lean ${leaderLabel}.`,
+      comparison?.reason,
+      prediction?.advice ? `Advice: ${prediction.advice}.` : null,
+    ].filter(Boolean).join(" ");
     return {
-      signal: best[1] - second[1] < 6 ? "balanced" as ScoreSignal : best[0],
-      reason: `API-Football prediction leans ${best[0]} (${best[1]}%).`,
+      signal,
+      reason,
     };
   }
   const winner = String(prediction?.winner ?? "").toLowerCase();
-  if (!winner) return { signal: "unavailable" as ScoreSignal, reason: "API-Football prediction is unavailable." };
-  if (winner === homeTeam.toLowerCase()) return { signal: "home" as ScoreSignal, reason: `API-Football winner signal favors ${homeTeam}.` };
-  if (winner === awayTeam.toLowerCase()) return { signal: "away" as ScoreSignal, reason: `API-Football winner signal favors ${awayTeam}.` };
+  if (!winner) {
+    if (comparison) return comparison;
+    return { signal: "unavailable" as ScoreSignal, reason: "API-Football prediction is unavailable." };
+  }
+  if (winner === homeTeam.toLowerCase()) return { signal: "home" as ScoreSignal, reason: [`API-Football winner signal favors ${homeTeam}.`, comparison?.reason].filter(Boolean).join(" ") };
+  if (winner === awayTeam.toLowerCase()) return { signal: "away" as ScoreSignal, reason: [`API-Football winner signal favors ${awayTeam}.`, comparison?.reason].filter(Boolean).join(" ") };
   return { signal: "draw" as ScoreSignal, reason: "API-Football winner signal points to a draw or balanced match." };
 }
 
