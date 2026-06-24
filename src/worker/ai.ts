@@ -56,6 +56,8 @@ type ScoreSignal = "home" | "draw" | "away" | "balanced" | "sparse" | "unavailab
 type Scorecard = {
   market_signal: ScoreSignal;
   api_prediction_signal: ScoreSignal;
+  current_world_cup_signal: ScoreSignal;
+  group_pressure_signal: ScoreSignal;
   qualifier_form_signal: ScoreSignal;
   recent_form_signal: ScoreSignal;
   strength_prior_signal: ScoreSignal;
@@ -90,7 +92,7 @@ type TeamFormHistory = {
   };
 };
 
-const INSIGHT_PROMPT_VERSION = "2026-06-18-scorecard-v37-provider-prediction-depth";
+const INSIGHT_PROMPT_VERSION = "2026-06-24-scorecard-v38-current-world-cup-context";
 const AI_DATASET_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const AI_PAST_DATA_CACHE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 type InsightLanguage = "en" | "fr";
@@ -589,6 +591,7 @@ function scoreFromCompactMatch(match: any) {
 }
 
 function insightSourceLabel(source: string | null | undefined) {
+  if (source === "current_world_cup") return "Current World Cup";
   if (source === "world_cup_qualifiers") return "World Cup qualifiers";
   if (source === "host_recent_all_competitions") return "Recent official/friendly games";
   if (source === "recent_form") return "Recent games";
@@ -626,9 +629,67 @@ function buildInsightFormRow(teamName: string, history: TeamFormHistory | null, 
 
 function buildInsightFormTable(match: MatchRow, scouting: any, homeHistory: TeamFormHistory | null, awayHistory: TeamFormHistory | null): InsightFormRow[] {
   return [
-    buildInsightFormRow(match.home_team, homeHistory, scouting.teams?.home?.recent_form ?? []),
-    buildInsightFormRow(match.away_team, awayHistory, scouting.teams?.away?.recent_form ?? []),
+    buildInsightFormRow(match.home_team, scouting.current_world_cup?.home ?? homeHistory, scouting.teams?.home?.recent_form ?? []),
+    buildInsightFormRow(match.away_team, scouting.current_world_cup?.away ?? awayHistory, scouting.teams?.away?.recent_form ?? []),
   ];
+}
+
+function compactCurrentWorldCupHistory(payload: any, teamId: number, teamName: string, beforeIso: string): TeamFormHistory {
+  const beforeTime = new Date(beforeIso).getTime();
+  const fixtures = Array.isArray(payload?.response) ? payload.response : [];
+  const completedFixtures = fixtures
+    .filter((fixture: any) => isCompletedFixture(fixture))
+    .filter((fixture: any) => new Date(fixture?.fixture?.date ?? 0).getTime() < beforeTime)
+    .filter((fixture: any) => sideForTeam(fixture, teamId) !== null);
+  const matches = completedFixtures
+    .sort((a: any, b: any) => new Date(b?.fixture?.date ?? 0).getTime() - new Date(a?.fixture?.date ?? 0).getTime())
+    .slice(0, 5)
+    .map((fixture: any) => {
+      const side = sideForTeam(fixture, teamId);
+      const opponent = opponentNameForTeam(fixture, teamId);
+      return {
+        ...compactFixture(fixture),
+        result: resultForTeam(fixture, teamId),
+        team_side: side,
+        opponent,
+        opponent_strength: teamStrength(opponent ?? ""),
+        competition_strength: 1.18,
+      };
+    })
+    .filter(Boolean);
+
+  const record = matches.reduce((acc: { wins: number; draws: number; losses: number }, fixture: any) => {
+    if (fixture.result === "W") acc.wins += 1;
+    if (fixture.result === "D") acc.draws += 1;
+    if (fixture.result === "L") acc.losses += 1;
+    return acc;
+  }, { wins: 0, draws: 0, losses: 0 });
+  const averageOpponentStrength = matches.length
+    ? matches.reduce((sum: number, fixture: any) => sum + (safeNumber(fixture.opponent_strength) ?? 72), 0) / matches.length
+    : 72;
+  const adjustedPointsPerMatch = matches.length
+    ? matches.reduce((sum: number, fixture: any) => (
+      sum + adjustedResultPoints(fixture.result, safeNumber(fixture.opponent_strength) ?? 72) * (safeNumber(fixture.competition_strength) ?? 1)
+    ), 0) / matches.length
+    : 0;
+
+  return {
+    note: "Current World Cup 2026 matches already completed by this team before this fixture. This becomes more important once teams have played one or two group games.",
+    competitions: [{ league: 1, season: 2026, name: "World Cup", strength: 1.18 }],
+    source: "current_world_cup",
+    competition_strength: 1.18,
+    average_opponent_strength: Number(averageOpponentStrength.toFixed(1)),
+    adjusted_points_per_match: Number(adjustedPointsPerMatch.toFixed(2)),
+    last_3_summary: summarizeLastThree(matches, teamId),
+    record,
+    matches,
+    debug: {
+      raw_count: fixtures.length,
+      completed_count: completedFixtures.length,
+      before_match_count: completedFixtures.length,
+      side_matched_count: completedFixtures.length,
+    },
+  };
 }
 
 function compactQualifierHistory(fixturesPayloads: any[], teamId: number, teamName: string, beforeIso: string): TeamFormHistory {
@@ -787,6 +848,9 @@ function compactStanding(payload: any) {
     points: row.points ?? null,
     goalsDiff: row.goalsDiff ?? null,
     form: row.form ?? null,
+    group: row.group ?? null,
+    status: row.status ?? null,
+    description: row.description ?? null,
     all: row.all ?? null,
   };
 }
@@ -1094,12 +1158,78 @@ function recentFormSignal(homeForm: any[], awayForm: any[], homeTeam: string, aw
   };
 }
 
+function tournamentFormSignal(homeHistory: TeamFormHistory | null, awayHistory: TeamFormHistory | null, homeTeam: string, awayTeam: string) {
+  const homeMatches = Number(homeHistory?.matches?.length ?? 0);
+  const awayMatches = Number(awayHistory?.matches?.length ?? 0);
+  if (homeMatches === 0 || awayMatches === 0) return { signal: "sparse" as ScoreSignal, reason: "Current World Cup form is not available yet for both teams." };
+  const homePpg = safeNumber(homeHistory?.adjusted_points_per_match) ?? 0;
+  const awayPpg = safeNumber(awayHistory?.adjusted_points_per_match) ?? 0;
+  const homeGoals = homeHistory?.last_3_summary?.goals_for ?? 0;
+  const awayGoals = awayHistory?.last_3_summary?.goals_for ?? 0;
+  const homeAgainst = homeHistory?.last_3_summary?.goals_against ?? 0;
+  const awayAgainst = awayHistory?.last_3_summary?.goals_against ?? 0;
+  const ppgDiff = homePpg - awayPpg;
+  const goalDiff = (homeGoals - homeAgainst) - (awayGoals - awayAgainst);
+  const combined = ppgDiff * 0.75 + goalDiff * 0.18;
+  if (Math.abs(combined) < 0.28) {
+    return {
+      signal: "balanced" as ScoreSignal,
+      reason: `Current World Cup form is close (${homeTeam} ${homePpg.toFixed(2)} adjusted pts/match, ${awayTeam} ${awayPpg.toFixed(2)}).`,
+    };
+  }
+  const leader = combined > 0 ? homeTeam : awayTeam;
+  return {
+    signal: combined > 0 ? "home" as ScoreSignal : "away" as ScoreSignal,
+    reason: `Current World Cup form favors ${leader} (${homeTeam} ${homePpg.toFixed(2)} adjusted pts/match, GD ${homeGoals - homeAgainst}; ${awayTeam} ${awayPpg.toFixed(2)}, GD ${awayGoals - awayAgainst}).`,
+  };
+}
+
 function strengthPriorSignal(homeTeam: string, awayTeam: string) {
   const gap = teamStrength(homeTeam) - teamStrength(awayTeam);
   if (Math.abs(gap) < 4) return { signal: "balanced" as ScoreSignal, reason: "Internal strength prior sees the teams as close." };
   return {
     signal: gap > 0 ? "home" as ScoreSignal : "away" as ScoreSignal,
     reason: `Internal strength prior favors ${gap > 0 ? homeTeam : awayTeam} by ${Math.abs(gap)} points.`,
+  };
+}
+
+function standingPressureValue(standing: any) {
+  const played = safeNumber(standing?.all?.played) ?? 0;
+  const points = safeNumber(standing?.points) ?? 0;
+  const rank = safeNumber(standing?.rank);
+  const goalDiff = safeNumber(standing?.goalsDiff) ?? 0;
+  if (played < 2 || rank === null) return null;
+  let pressure = 0.45;
+  if (rank <= 2 && points >= 4) pressure = 0.2;
+  else if (rank <= 2 && points >= 3) pressure = 0.38;
+  else if (rank >= 3 && points >= 3) pressure = 0.68;
+  else if (rank >= 3 && points <= 2) pressure = 0.88;
+  if (goalDiff <= -2) pressure += 0.08;
+  if (goalDiff >= 2 && rank <= 2) pressure -= 0.05;
+  return Math.max(0, Math.min(1, pressure));
+}
+
+function groupPressureSignal(homeStanding: any, awayStanding: any, homeTeam: string, awayTeam: string) {
+  const homePressure = standingPressureValue(homeStanding);
+  const awayPressure = standingPressureValue(awayStanding);
+  if (homePressure === null || awayPressure === null) {
+    return { signal: "sparse" as ScoreSignal, reason: "Group-table pressure is not reliable yet; at least one team has fewer than two recorded group games." };
+  }
+  const homeRank = safeNumber(homeStanding?.rank);
+  const awayRank = safeNumber(awayStanding?.rank);
+  const homePoints = safeNumber(homeStanding?.points) ?? 0;
+  const awayPoints = safeNumber(awayStanding?.points) ?? 0;
+  const diff = homePressure - awayPressure;
+  if (Math.abs(diff) < 0.22) {
+    return {
+      signal: "balanced" as ScoreSignal,
+      reason: `Group pressure is similar (${homeTeam}: rank ${homeRank}, ${homePoints} pts; ${awayTeam}: rank ${awayRank}, ${awayPoints} pts).`,
+    };
+  }
+  const team = diff > 0 ? homeTeam : awayTeam;
+  return {
+    signal: diff > 0 ? "home" as ScoreSignal : "away" as ScoreSignal,
+    reason: `Group-table urgency is higher for ${team} (${homeTeam}: rank ${homeRank}, ${homePoints} pts; ${awayTeam}: rank ${awayRank}, ${awayPoints} pts).`,
   };
 }
 
@@ -1146,6 +1276,8 @@ function suggestedScoreFromEdge(homeTeam: string, awayTeam: string, edge: number
 function buildScorecard(match: MatchRow, scouting: any): Scorecard {
   const market = matchWinnerOddsSignal(scouting.market_odds, match.home_team, match.away_team);
   const api = apiPredictionSignal(scouting.provider_prediction, match.home_team, match.away_team);
+  const currentWorldCup = tournamentFormSignal(scouting.current_world_cup?.home ?? null, scouting.current_world_cup?.away ?? null, match.home_team, match.away_team);
+  const groupPressure = groupPressureSignal(scouting.teams?.home?.standing, scouting.teams?.away?.standing, match.home_team, match.away_team);
   const qualifiers = qualifierFormSignal(scouting.world_cup_qualifiers?.home, scouting.world_cup_qualifiers?.away);
   const recent = recentFormSignal(scouting.teams?.home?.recent_form ?? [], scouting.teams?.away?.recent_form ?? [], match.home_team, match.away_team);
   const strength = strengthPriorSignal(match.home_team, match.away_team);
@@ -1153,10 +1285,12 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
   const strengthGap = (teamStrength(match.home_team) + regional.boost_home) - (teamStrength(match.away_team) + regional.boost_away);
   const weightedSignals = [
     { ...market, weight: 0.22 },
-    { ...api, weight: 0.18 },
-    { ...qualifiers, weight: 0.25 },
-    { ...strength, weight: 0.2 },
-    { ...recent, weight: 0.12 },
+    { ...api, weight: 0.16 },
+    { ...currentWorldCup, weight: 0.18 },
+    { ...groupPressure, weight: 0.07 },
+    { ...qualifiers, weight: 0.18 },
+    { ...strength, weight: 0.16 },
+    { ...recent, weight: 0.08 },
     { ...regional, weight: 0.03 },
   ];
   const usable = weightedSignals.filter((item) => !["unavailable", "sparse"].includes(item.signal));
@@ -1172,6 +1306,8 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
   return {
     market_signal: market.signal,
     api_prediction_signal: api.signal,
+    current_world_cup_signal: currentWorldCup.signal,
+    group_pressure_signal: groupPressure.signal,
     qualifier_form_signal: qualifiers.signal,
     recent_form_signal: recent.signal,
     strength_prior_signal: strength.signal,
@@ -1180,13 +1316,15 @@ function buildScorecard(match: MatchRow, scouting: any): Scorecard {
     confidence_level: level,
     suggested_pick: suggestedScoreFromEdge(match.home_team, match.away_team, edge, strengthGap, scouting.market_odds),
     bonus_recommended: level === "high" && Math.abs(edge) >= 0.5 && String(match.stage ?? "").toLowerCase().includes("group"),
-    reasons: [market.reason, api.reason, qualifiers.reason, strength.reason, regional.reason, recent.reason].filter(Boolean).slice(0, 5),
+    reasons: [market.reason, api.reason, currentWorldCup.reason, groupPressure.reason, qualifiers.reason, strength.reason, regional.reason, recent.reason].filter(Boolean).slice(0, 6),
   };
 }
 
 function teamInsightSummary(teamName: string, history: TeamFormHistory | null, fallbackForm: any[]) {
   const source = history?.source ?? (fallbackForm.length ? "recent_form" : "unavailable");
-  const sourceLabel = source === "world_cup_qualifiers"
+  const sourceLabel = source === "current_world_cup"
+    ? "current World Cup 2026 matches already played"
+    : source === "world_cup_qualifiers"
     ? "World Cup qualifier matches"
     : source === "host_recent_all_competitions"
       ? "latest matches across all competitions and friendlies because this host team has no normal qualifier campaign"
@@ -1214,10 +1352,26 @@ function teamInsightSummary(teamName: string, history: TeamFormHistory | null, f
 function buildScoutingInsights(match: MatchRow, scouting: any) {
   const home = teamInsightSummary(match.home_team, scouting.world_cup_qualifiers?.home ?? null, scouting.teams?.home?.recent_form ?? []);
   const away = teamInsightSummary(match.away_team, scouting.world_cup_qualifiers?.away ?? null, scouting.teams?.away?.recent_form ?? []);
+  const homeCurrent = teamInsightSummary(match.home_team, scouting.current_world_cup?.home ?? null, []);
+  const awayCurrent = teamInsightSummary(match.away_team, scouting.current_world_cup?.away ?? null, []);
   const injuries = Array.isArray(scouting.injuries) ? scouting.injuries : [];
   return {
     instruction: "Prioritize concrete football numbers and context. Bookmaker consensus is one useful signal, never the sole basis for the pick.",
     bookmaker_consensus: scouting.market_odds?.summary ?? null,
+    current_world_cup_context: {
+      note: "Use current World Cup group matches and standings as a meaningful but secondary tournament-context signal. It should influence pressure, rhythm, and qualification incentives without overriding stronger football signals by itself.",
+      form: {
+        home: homeCurrent,
+        away: awayCurrent,
+        adjusted_points_gap_home_minus_away: homeCurrent.adjusted_points_per_match != null && awayCurrent.adjusted_points_per_match != null
+          ? Number((homeCurrent.adjusted_points_per_match - awayCurrent.adjusted_points_per_match).toFixed(2))
+          : null,
+      },
+      group_table: {
+        home: scouting.teams?.home?.standing ?? null,
+        away: scouting.teams?.away?.standing ?? null,
+      },
+    },
     form_comparison: {
       home,
       away,
@@ -1408,11 +1562,13 @@ async function buildStatsSnapshot(env: Env, match: MatchRow, options: StatsSnaps
   };
   const league = env.FOOTBALL_API_LEAGUE_ID || "1";
   const season = env.FOOTBALL_API_SEASON || "2026";
-  const [homeStats, awayStats, homeForm, awayForm, homeQualifierPayloads, awayQualifierPayloads, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
+  const [homeStats, awayStats, homeForm, awayForm, homeWorldCupPayload, awayWorldCupPayload, homeQualifierPayloads, awayQualifierPayloads, homeStanding, awayStanding, h2h, providerPrediction, injuries, odds] = await Promise.all([
     fetchTeamStats(env, teams?.home ?? null, options).catch(() => null),
     fetchTeamStats(env, teams?.away ?? null, options).catch(() => null),
     teams?.home ? getApiFootball(env, "/fixtures", { team: teams.home, last: 5 }, options).then((payload: any) => payload?.response?.slice(0, 5).map((fixture: any) => compactFixtureForTeam(fixture, teams.home!)) ?? null).catch(() => null) : null,
     teams?.away ? getApiFootball(env, "/fixtures", { team: teams.away, last: 5 }, options).then((payload: any) => payload?.response?.slice(0, 5).map((fixture: any) => compactFixtureForTeam(fixture, teams.away!)) ?? null).catch(() => null) : null,
+    teams?.home ? getApiFootball(env, "/fixtures", { league, season, team: teams.home }, options).catch(() => null) : null,
+    teams?.away ? getApiFootball(env, "/fixtures", { league, season, team: teams.away }, options).catch(() => null) : null,
     fetchTeamWorldCupQualifierPayloads(env, teams?.home ?? null, options).catch(() => []),
     fetchTeamWorldCupQualifierPayloads(env, teams?.away ?? null, options).catch(() => []),
     teams?.home ? getApiFootball(env, "/standings", { league, season, team: teams.home }, options).then(compactStanding).catch(() => null) : null,
@@ -1430,12 +1586,15 @@ async function buildStatsSnapshot(env: Env, match: MatchRow, options: StatsSnaps
   if (awayQualifierHistory && awayQualifierHistory.matches.length === 0 && HOST_RECENT_FORM_TEAMS.has(match.away_team)) {
     awayQualifierHistory = await fetchHostRecentHistory(env, teams?.away ?? null, match.away_team, match.kickoff_at, options).catch(() => awayQualifierHistory);
   }
+  const homeWorldCupHistory = teams?.home ? compactCurrentWorldCupHistory(homeWorldCupPayload, teams.home, match.home_team, match.kickoff_at) : null;
+  const awayWorldCupHistory = teams?.away ? compactCurrentWorldCupHistory(awayWorldCupPayload, teams.away, match.away_team, match.kickoff_at) : null;
   const [homeHistoricalDetails, awayHistoricalDetails] = await Promise.all([
     cachedHistoricalDetailsForHistory(env, homeQualifierHistory).catch(() => []),
     cachedHistoricalDetailsForHistory(env, awayQualifierHistory).catch(() => []),
   ]);
   const datasets = {
     odds: !!odds,
+    current_world_cup: !!((homeWorldCupHistory?.matches.length ?? 0) || (awayWorldCupHistory?.matches.length ?? 0)),
     world_cup_qualifiers: !!((homeQualifierHistory?.matches.length ?? 0) || (awayQualifierHistory?.matches.length ?? 0)),
     team_statistics: !!(homeStats || awayStats),
     recent_form: !!((homeForm?.length ?? 0) || (awayForm?.length ?? 0)),
@@ -1460,6 +1619,10 @@ async function buildStatsSnapshot(env: Env, match: MatchRow, options: StatsSnaps
     source: Object.values(datasets).some(Boolean) ? "football-api-scouting-pack" : "match-context",
     datasets,
     market_odds: odds,
+    current_world_cup: {
+      home: homeWorldCupHistory,
+      away: awayWorldCupHistory,
+    },
     world_cup_qualifiers: {
       home: homeQualifierHistory,
       away: awayQualifierHistory,
@@ -1484,8 +1647,8 @@ async function buildStatsSnapshot(env: Env, match: MatchRow, options: StatsSnaps
       away: qualifierEndpointSummary(awayQualifierPayloads),
     },
     teams: {
-      home: { id: teams?.home ?? null, name: match.home_team, stats: homeStats, recent_form: homeForm ?? [], world_cup_qualifiers: homeQualifierHistory, standing: homeStanding },
-      away: { id: teams?.away ?? null, name: match.away_team, stats: awayStats, recent_form: awayForm ?? [], world_cup_qualifiers: awayQualifierHistory, standing: awayStanding },
+      home: { id: teams?.home ?? null, name: match.home_team, stats: homeStats, recent_form: homeForm ?? [], current_world_cup: homeWorldCupHistory, world_cup_qualifiers: homeQualifierHistory, standing: homeStanding },
+      away: { id: teams?.away ?? null, name: match.away_team, stats: awayStats, recent_form: awayForm ?? [], current_world_cup: awayWorldCupHistory, world_cup_qualifiers: awayQualifierHistory, standing: awayStanding },
     },
   };
   return {
@@ -1583,13 +1746,14 @@ async function generateInsight(env: Env, match: MatchRow, stats: unknown, langua
             "OddzzAI competes privately against players. Never reveal its suggested winner, exact score, confidence in its pick, or x5 bonus decision in headline, summary, angles, or disclaimer.",
             "Write headline and summary as a neutral scouting brief that helps users make their own decision. Present meaningful strengths, weaknesses, form, opponent quality, injuries, market probabilities, and goal expectations without concluding who OddzzAI selected.",
             "Do not end the public summary by saying which team is expected to win, score more, prevail, edge the match, or has OddzzAI's overall advantage. It is fine to state explicitly attributed facts such as bookmaker probabilities or a stronger individual dataset, but leave conflicting signals unresolved for the user.",
-            "The summary must concisely account for every dataset category supplied in stats.datasets: bookmaker odds, API-Football provider prediction, World Cup qualifiers, recent form, head-to-head, team statistics, standings, and injuries. Mention useful available signals and clearly say when bookmaker odds or provider predictions are not available yet.",
-            "The stats JSON also contains scouting_insights and insight_form_table. Use them as the main source for the rationale paragraph: recent results, goals scored, goals conceded, adjusted points per match, average opponent strength, baseline strength, and injury watch.",
+            "The summary must concisely account for every dataset category supplied in stats.datasets: bookmaker odds, API-Football provider prediction, current World Cup matches, group standings/qualification pressure, World Cup qualifiers, recent form, head-to-head, team statistics, standings, and injuries. Mention useful available signals and clearly say when bookmaker odds or provider predictions are not available yet.",
+            "The stats JSON also contains scouting_insights and insight_form_table. Use them as the main source for the rationale paragraph: current World Cup results, group rank, points, goal difference, qualification pressure, recent results, goals scored, goals conceded, adjusted points per match, average opponent strength, baseline strength, and injury watch.",
             "When scouting_insights.historical_match_details contains cached past fixture statistics, events, or lineups, use them to add concrete context such as shots, corners, cards, goals/events, formations, and notable starters. Do not invent those details when missing.",
             "When writing form bullets, use scouting_insights.form_comparison.home.source_label and scouting_insights.form_comparison.away.source_label. If a team source is host_recent_all_competitions or recent_form, do not describe that data as World Cup qualifiers.",
             "The angles array is kept only for backward compatibility and can be short. Do not rely on it for the final UI.",
             "When injuries are available, mention key absences by player/team/reason. If injury data is unavailable, say 'No fixture injury list available yet' only if useful; do not overstate it.",
-            "Consider all available datasets together: World Cup qualifiers, baseline strength, recent form, provider prediction, bookmaker consensus, head-to-head, team statistics, standings, injuries, and tournament context.",
+            "Consider all available datasets together: current World Cup form, group standings and qualification pressure, World Cup qualifiers, baseline strength, recent form, provider prediction, bookmaker consensus, head-to-head, team statistics, standings, injuries, and tournament context.",
+            "Once teams have played World Cup group games, current_world_cup_context should be described before older qualifier history. Group-table pressure should be treated as a secondary tactical/motivation signal: it can influence urgency and risk appetite, but it should not override stronger football quality, odds, or form signals by itself.",
             "World Cup qualifier history is an important national-team signal. Oddzz adjusts this signal by confederation strength, so continents are not treated as perfectly equal.",
             "For 2026 host teams without qualifiers, Oddzz may provide host_recent_all_competitions from their latest 10 completed matches including friendlies. Treat it as useful but weaker than true qualifier data.",
             "If scouting_insights.bookmaker_consensus exists, summarize what the combined bookmakers expect using the result probabilities, over/under 2.5 goals, both-teams-to-score probability, and likely exact scores when available.",
@@ -1682,10 +1846,19 @@ async function cachedOrGenerateInsightFromStats(env: Env, match: MatchRow, langu
 }
 
 async function refreshFixtureScoutingDatasets(env: Env, match: MatchRow) {
+  const league = env.FOOTBALL_API_LEAGUE_ID || "1";
+  const season = env.FOOTBALL_API_SEASON || "2026";
+  const homeTeamId = safeNumber(match.home_team_api_id);
+  const awayTeamId = safeNumber(match.away_team_api_id);
+  const teamRefreshes = [homeTeamId, awayTeamId].filter((teamId): teamId is number => teamId !== null).flatMap((teamId) => [
+    fetchApiFootball(env, "/fixtures", { league, season, team: teamId }, { bypassCache: true }).catch(() => null),
+    fetchApiFootball(env, "/standings", { league, season, team: teamId }, { bypassCache: true }).catch(() => null),
+  ]);
   await Promise.all([
     fetchApiFootball(env, "/predictions", { fixture: match.external_id }, { bypassCache: true }).catch(() => null),
     fetchApiFootball(env, "/injuries", { fixture: match.external_id }, { bypassCache: true }).catch(() => null),
     fetchApiFootball(env, "/odds", { fixture: match.external_id }, { bypassCache: true }).catch(() => null),
+    ...teamRefreshes,
   ]);
 }
 
