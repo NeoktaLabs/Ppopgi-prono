@@ -156,6 +156,13 @@ function formatVenue(venue: VenueDetails | null | undefined, fallback?: VenueDet
   return [name, city, country].filter(Boolean).join(" · ") || null;
 }
 
+function cumulativeExtraTimeScore(score: any, side: "home" | "away") {
+  const extraTimeGoals = safeNumber(score?.extratime?.[side]);
+  if (extraTimeGoals === null) return null;
+  const fullTimeGoals = safeNumber(score?.fulltime?.[side]) ?? 0;
+  return fullTimeGoals + extraTimeGoals;
+}
+
 async function fetchVenueDetails(baseUrl: string, apiKey: string, venueId: number, cache: Map<number, VenueDetails | null>) {
   if (cache.has(venueId)) return cache.get(venueId) ?? null;
   try {
@@ -219,8 +226,8 @@ async function fetchApiFootballMatches(env: Env): Promise<ProviderMatch[]> {
       liveMinute: isLive ? liveMinute : null,
       score90Home: score.fulltime?.home ?? null,
       score90Away: score.fulltime?.away ?? null,
-      score120Home: score.extratime?.home ?? null,
-      score120Away: score.extratime?.away ?? null,
+      score120Home: cumulativeExtraTimeScore(score, "home"),
+      score120Away: cumulativeExtraTimeScore(score, "away"),
       penaltyHome: score.penalty?.home ?? null,
       penaltyAway: score.penalty?.away ?? null,
       finalHome: ["finished"].includes(status) ? goals.home ?? null : null,
