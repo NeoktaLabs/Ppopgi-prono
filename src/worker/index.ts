@@ -145,7 +145,7 @@ async function handleApi(request: Request, env: Env) {
   if (request.method === "POST" && pathname === "/api/admin/emails/wrapup") {
     const admin = await requireGlobalAdmin(request, env);
     if (admin.error) return admin.error;
-    return json(await sendPendingWrapupEmails(env));
+    return json(await sendPendingWrapupEmails());
   }
 
   if (request.method === "POST" && pathname === "/api/admin/ai/hydrate") {

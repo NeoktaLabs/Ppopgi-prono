@@ -84,7 +84,8 @@ function rankLabel(rank: number, language: Language) {
   if (language === "fr") return `#${rank}`;
   if (rank === 1) return "1st";
   if (rank === 2) return "2nd";
-  return "3rd";
+  if (rank === 3) return "3rd";
+  return `${rank}th`;
 }
 
 function copy(language: Language, appName: string) {
@@ -284,32 +285,8 @@ export async function sendWrapupEmailToUser(env: Env, user: WrapupEmailUser) {
   return { ok: true, sent: true };
 }
 
-export async function sendPendingWrapupEmails(env: Env, limit = 200) {
-  const rows = await env.DB.prepare(`
-    SELECT users.id, users.email, users.nickname, users.email_language
-    FROM users
-    LEFT JOIN wrapup_emails sent ON sent.user_id = users.id
-    WHERE users.nickname IS NOT NULL
-      AND sent.id IS NULL
-    ORDER BY users.created_at ASC
-    LIMIT ?
-  `).bind(limit).all<WrapupEmailUser>();
-
-  let sent = 0;
-  let skipped = 0;
-  const errors: Array<{ user_id: string; error: string }> = [];
-
-  for (const user of rows.results ?? []) {
-    try {
-      const result = await sendWrapupEmailToUser(env, user);
-      if ("sent" in result && result.sent) sent += 1;
-      else skipped += 1;
-    } catch (error) {
-      errors.push({ user_id: user.id, error: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  return { ok: errors.length === 0, sent, skipped, errors, considered: rows.results?.length ?? 0 };
+export async function sendPendingWrapupEmails() {
+  return { ok: false, sent: 0, skipped: 0, errors: [{ user_id: "system", error: "Wrap-up bulk email sending is disabled." }], considered: 0 };
 }
 
 export async function sendWrapupPreviewEmail(request: Request, env: Env) {
