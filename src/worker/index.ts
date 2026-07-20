@@ -46,7 +46,12 @@ import {
 import { sendDigestPreviewEmail } from "./digest-email";
 import { sendDailyPredictionReminders, sendPredictionReminderPreviewEmail } from "./prediction-reminders";
 import { sendPendingKickoffEmails, sendKickoffPreviewEmail, sendScheduledKickoffEmails } from "./kickoff-email";
-import { sendPendingWrapupEmails, sendWrapupPreviewEmail } from "./wrapup-email";
+import {
+  sendPendingWrapupEmails,
+  sendPendingWrapupErratumEmails,
+  sendWrapupErratumPreviewEmail,
+  sendWrapupPreviewEmail,
+} from "./wrapup-email";
 
 function routeParams(pathname: string, pattern: RegExp) {
   const match = pathname.match(pattern);
@@ -136,6 +141,12 @@ async function handleApi(request: Request, env: Env) {
     return sendWrapupPreviewEmail(request, env);
   }
 
+  if (request.method === "POST" && pathname === "/api/admin/test/wrapup-erratum-email") {
+    const admin = await requireGlobalAdmin(request, env);
+    if (admin.error) return admin.error;
+    return sendWrapupErratumPreviewEmail(request, env);
+  }
+
   if (request.method === "POST" && pathname === "/api/admin/emails/kickoff") {
     const admin = await requireGlobalAdmin(request, env);
     if (admin.error) return admin.error;
@@ -146,6 +157,12 @@ async function handleApi(request: Request, env: Env) {
     const admin = await requireGlobalAdmin(request, env);
     if (admin.error) return admin.error;
     return json(await sendPendingWrapupEmails());
+  }
+
+  if (request.method === "POST" && pathname === "/api/admin/emails/wrapup-erratum") {
+    const admin = await requireGlobalAdmin(request, env);
+    if (admin.error) return admin.error;
+    return json(await sendPendingWrapupErratumEmails(env));
   }
 
   if (request.method === "POST" && pathname === "/api/admin/ai/hydrate") {

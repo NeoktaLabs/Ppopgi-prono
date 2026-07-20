@@ -82,9 +82,12 @@ async function userLeagueRanks(env: Env, userId: string): Promise<UserLeagueRank
 
 function rankLabel(rank: number, language: Language) {
   if (language === "fr") return `#${rank}`;
-  if (rank === 1) return "1st";
-  if (rank === 2) return "2nd";
-  if (rank === 3) return "3rd";
+  const teen = rank % 100;
+  if (teen >= 11 && teen <= 13) return `${rank}th`;
+  const last = rank % 10;
+  if (last === 1) return `${rank}st`;
+  if (last === 2) return `${rank}nd`;
+  if (last === 3) return `${rank}rd`;
   return `${rank}th`;
 }
 
@@ -318,6 +321,152 @@ export async function sendWrapupPreviewEmail(request: Request, env: Env) {
       fromName: "Oddzz",
     });
     return json({ ok: true, to, language, podium, league_ranks: leagueRanks, resend });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Resend failed." }, { status: 502 });
+  }
+}
+
+function erratumText(env: Env, user: WrapupEmailUser, leagueRanks: UserLeagueRank[]) {
+  const appName = env.APP_NAME || "Oddzz";
+  return [
+    `Hello ${user.nickname || "there"},`,
+    "",
+    `I am sorry: there was a display mistake in the ${appName} wrap-up email you received earlier.`,
+    "",
+    "In the personal league ranking section, English emails displayed every league rank from 4th onward as “3rd”. Your points and exact-score numbers were not changed, but the written rank label was wrong.",
+    "",
+    "Here is your corrected league ranking:",
+    "",
+    ...leagueRanks.map((row) => `- ${row.league}: ${rankLabel(row.rank, "en")} / ${row.players} - ${row.points} pts, ${row.exact_scores} exact scores`),
+    "",
+    "Sorry again for the confusion, and thank you for your understanding.",
+    "",
+    "Julien",
+  ].join("\n");
+}
+
+function erratumHtml(env: Env, user: WrapupEmailUser, leagueRanks: UserLeagueRank[]) {
+  const appName = env.APP_NAME || "Oddzz";
+  const rows = leagueRanks.map((row) => `
+                  <tr>
+                    <td style="padding:14px 12px;border-bottom:1px solid #eadfcf;font-weight:900;color:#061735;">${escapeHtml(row.league)}</td>
+                    <td style="padding:14px 12px;border-bottom:1px solid #eadfcf;color:#344054;">${escapeHtml(rankLabel(row.rank, "en"))} / ${row.players}</td>
+                    <td style="padding:14px 12px;border-bottom:1px solid #eadfcf;text-align:right;color:#344054;">${row.points} pts</td>
+                    <td style="padding:14px 12px;border-bottom:1px solid #eadfcf;text-align:right;color:#344054;">${row.exact_scores}</td>
+                  </tr>`).join("");
+
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#fff7ed;font-family:Arial,Helvetica,sans-serif;color:#091833;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff7ed;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:28px;border:1px solid #eadfcf;overflow:hidden;box-shadow:0 18px 44px rgba(6,23,53,0.10);">
+            <tr>
+              <td style="padding:32px 30px 26px;background:#061735;color:#ffffff;">
+                <div style="font-size:13px;font-weight:800;letter-spacing:.10em;text-transform:uppercase;color:#1fd36b;">Correction</div>
+                <h1 style="margin:12px 0 0;font-size:29px;line-height:1.1;">Correction to your ${escapeHtml(appName)} league ranking</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:30px;">
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.65;color:#344054;">Hello ${escapeHtml(user.nickname || "there")},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.65;color:#344054;">I am sorry: there was a display mistake in the ${escapeHtml(appName)} wrap-up email you received earlier.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.65;color:#344054;">In the personal league ranking section, English emails displayed every league rank from 4th onward as <strong>3rd</strong>. Your points and exact-score numbers were not changed, but the written rank label was wrong.</p>
+                <div style="margin:26px 0;padding:20px;border-radius:22px;background:#fff7ed;border:1px solid #eadfcf;">
+                  <div style="font-size:13px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;color:#c05621;margin-bottom:12px;">Your corrected league ranking</div>
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#ffffff;border-radius:16px;overflow:hidden;">
+                    <tr>
+                      <th align="left" style="padding:12px;color:#667085;font-size:12px;text-transform:uppercase;letter-spacing:.08em;">League</th>
+                      <th align="left" style="padding:12px;color:#667085;font-size:12px;text-transform:uppercase;letter-spacing:.08em;">Rank</th>
+                      <th align="right" style="padding:12px;color:#667085;font-size:12px;text-transform:uppercase;letter-spacing:.08em;">Points</th>
+                      <th align="right" style="padding:12px;color:#667085;font-size:12px;text-transform:uppercase;letter-spacing:.08em;">Exact</th>
+                    </tr>
+${rows}
+                  </table>
+                </div>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.65;color:#344054;">Sorry again for the confusion, and thank you for your understanding.</p>
+                <p style="margin:0;font-size:16px;line-height:1.65;color:#344054;">Julien</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+async function affectedEnglishErratumUsers(env: Env, limit: number) {
+  const rows = await env.DB.prepare(`
+    SELECT users.id, users.email, users.nickname, users.email_language
+    FROM users
+    JOIN wrapup_emails sent ON sent.user_id = users.id AND sent.language = 'en'
+    LEFT JOIN wrapup_erratum_emails erratum ON erratum.user_id = users.id
+    WHERE users.nickname IS NOT NULL
+      AND erratum.id IS NULL
+    ORDER BY users.email COLLATE NOCASE ASC
+    LIMIT ?
+  `).bind(limit).all<WrapupEmailUser>();
+
+  const affected: Array<{ user: WrapupEmailUser; ranks: UserLeagueRank[] }> = [];
+  for (const user of rows.results ?? []) {
+    const ranks = (await userLeagueRanks(env, user.id)).filter((row) => row.rank >= 4);
+    if (ranks.length) affected.push({ user, ranks });
+  }
+  return affected;
+}
+
+export async function sendPendingWrapupErratumEmails(env: Env, limit = 100) {
+  const affected = await affectedEnglishErratumUsers(env, limit);
+  let sent = 0;
+  let skipped = 0;
+  const errors: Array<{ user_id: string; error: string }> = [];
+
+  for (const item of affected) {
+    try {
+      await sendEmail(env, {
+        to: item.user.email,
+        subject: `${env.APP_NAME || "Oddzz"} - Correction to your league ranking`,
+        text: erratumText(env, item.user, item.ranks),
+        html: erratumHtml(env, item.user, item.ranks),
+        fromName: "Oddzz",
+      });
+      await env.DB.prepare(`
+        INSERT INTO wrapup_erratum_emails (id, user_id, sent_at, reason)
+        VALUES (?, ?, ?, ?)
+      `).bind(crypto.randomUUID(), item.user.id, nowIso(), "english-rank-labels-4-plus-rendered-as-3rd").run();
+      sent += 1;
+    } catch (error) {
+      errors.push({ user_id: item.user.id, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  return { ok: errors.length === 0, sent, skipped, errors, considered: affected.length };
+}
+
+export async function sendWrapupErratumPreviewEmail(request: Request, env: Env) {
+  const body = await readJson<{ to?: string; sampleUserEmail?: string }>(request);
+  const to = body.to?.trim() || "juliiengariin@gmail.com";
+  const sampleEmail = body.sampleUserEmail?.trim() || "graham.kellen@bflexion.com";
+  const user = await env.DB.prepare(`
+    SELECT id, email, nickname, email_language
+    FROM users
+    WHERE lower(email) = lower(?)
+    LIMIT 1
+  `).bind(sampleEmail).first<WrapupEmailUser>();
+  if (!user) return json({ error: "Sample user not found." }, { status: 404 });
+  const ranks = (await userLeagueRanks(env, user.id)).filter((row) => row.rank >= 4);
+
+  try {
+    const resend = await sendEmail(env, {
+      to,
+      subject: `${env.APP_NAME || "Oddzz"} - Correction to your league ranking preview`,
+      text: erratumText(env, user, ranks),
+      html: erratumHtml(env, user, ranks),
+      fromName: "Oddzz",
+    });
+    return json({ ok: true, to, sample_user: user.email, ranks, resend });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Resend failed." }, { status: 502 });
   }
