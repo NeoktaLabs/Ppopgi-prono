@@ -8,6 +8,49 @@ type Countdown = {
   minutes: number;
   seconds: number;
 };
+type HallOfFameMatch = {
+  id: string;
+  homeTeam: string;
+  awayTeam: string;
+  kickoffAt: string;
+  stage: string | null;
+  venue: string | null;
+  finalHome: number | null;
+  finalAway: number | null;
+};
+type HallOfFamePrediction = {
+  matchId: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  points: number;
+  exact: boolean;
+  correctResult: boolean;
+  bonusUsed: boolean;
+};
+type HallOfFameRanking = {
+  userId: string;
+  nickname: string | null;
+  isAi?: boolean;
+  rank: number;
+  points: number;
+  exactScores: number;
+  correctResults: number;
+  predictionsCount: number;
+  bonusesUsed: number;
+  predictions: HallOfFamePrediction[];
+};
+type HallOfFameCompetition = {
+  id: string;
+  name: string;
+  winner: string;
+  generatedAt?: string | null;
+  matches: HallOfFameMatch[];
+  rankings: HallOfFameRanking[];
+};
+type HallOfFameArchive = {
+  generatedAt: string | null;
+  competitions: HallOfFameCompetition[];
+};
 
 const EURO_2028_OPENING_TARGET = new Date("2028-06-09T19:00:00.000Z");
 
@@ -27,6 +70,23 @@ const copy = {
     minutes: "Minutes",
     seconds: "Seconds",
     closing: "See you in 2028 for the next prediction battle.",
+    hallTitle: "Hall of Fame",
+    hallIntro: "A permanent snapshot of past Oddzz competitions, starting with the World Cup 2026 final ranking.",
+    hallEmpty: "The World Cup 2026 archive is ready to be generated from the final database snapshot.",
+    hallLoading: "Loading Hall of Fame…",
+    champion: "Champion",
+    finalRanking: "Final ranking",
+    player: "Player",
+    points: "Points",
+    exact: "Exact",
+    correct: "Correct",
+    predicted: "Predicted",
+    predictionsTitle: "Prediction history",
+    finalScore: "Final score",
+    pick: "Pick",
+    noPick: "N/A",
+    bonus: "Bonus x5",
+    close: "Close",
     footer: "Oddzz - Built with love and care by Neokta Labs",
   },
   fr: {
@@ -44,6 +104,23 @@ const copy = {
     minutes: "Minutes",
     seconds: "Secondes",
     closing: "Rendez-vous en 2028 pour la prochaine bataille de pronostics.",
+    hallTitle: "Hall of Fame",
+    hallIntro: "Un snapshot permanent des anciennes compétitions Oddzz, en commençant par le classement final de la Coupe du Monde 2026.",
+    hallEmpty: "L’archive Coupe du Monde 2026 est prête à être générée depuis le snapshot final de la base de données.",
+    hallLoading: "Chargement du Hall of Fame…",
+    champion: "Champion",
+    finalRanking: "Classement final",
+    player: "Joueur",
+    points: "Points",
+    exact: "Exacts",
+    correct: "Corrects",
+    predicted: "Pronostiqués",
+    predictionsTitle: "Historique des pronostics",
+    finalScore: "Score final",
+    pick: "Prono",
+    noPick: "N/A",
+    bonus: "Bonus x5",
+    close: "Fermer",
     footer: "Oddzz - Built with love and care by Neokta Labs",
   },
 } satisfies Record<Language, Record<string, string>>;
@@ -76,10 +153,27 @@ function getCountdown(target: Date): Countdown {
   return { years, days, hours, minutes, seconds };
 }
 
+function formatDate(value: string, language: Language) {
+  return new Date(value).toLocaleDateString(language === "fr" ? "fr-CH" : "en-GB", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function predictionClass(prediction: HallOfFamePrediction) {
+  if (prediction.homeScore === null || prediction.awayScore === null || prediction.points === 0) return "wrong";
+  if (prediction.exact) return "exact";
+  if (prediction.correctResult) return "correct";
+  return "wrong";
+}
+
 function App() {
   const [language, setLanguage] = useState<Language>(initialLanguage);
   const [countdown, setCountdown] = useState(() => getCountdown(EURO_2028_OPENING_TARGET));
+  const [archive, setArchive] = useState<HallOfFameArchive | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<HallOfFameRanking | null>(null);
   const t = copy[language];
+  const competition = archive?.competitions[0] ?? null;
 
   const countdownItems = useMemo(
     () => [
@@ -106,6 +200,13 @@ function App() {
       setCountdown(getCountdown(EURO_2028_OPENING_TARGET));
     }, 1000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    fetch("/hall-of-fame/world-cup-2026.json")
+      .then(async (response) => (response.ok ? ((await response.json()) as HallOfFameArchive) : null))
+      .then((payload) => setArchive(payload))
+      .catch(() => setArchive(null));
   }, []);
 
   return (
@@ -153,6 +254,104 @@ function App() {
 
         <p className="closing">{t.closing}</p>
       </section>
+
+      <section className="hall-of-fame" aria-labelledby="hall-title">
+        <div className="hall-copy">
+          <p className="eyebrow">{t.hallTitle}</p>
+          <h2 id="hall-title">{competition?.name ?? "World Cup 2026"}</h2>
+          <p>{t.hallIntro}</p>
+          <span>
+            {t.champion}: <strong>{competition?.winner ?? "Spain"}</strong>
+          </span>
+        </div>
+
+        {!archive ? (
+          <p className="hall-empty">{t.hallLoading}</p>
+        ) : !competition || competition.rankings.length === 0 ? (
+          <p className="hall-empty">{t.hallEmpty}</p>
+        ) : (
+          <div className="hall-table" aria-label={t.finalRanking}>
+            <div className="hall-row hall-head">
+              <span>#</span>
+              <span>{t.player}</span>
+              <span>{t.points}</span>
+              <span>{t.exact}</span>
+              <span>{t.correct}</span>
+              <span>{t.predicted}</span>
+            </div>
+            {competition.rankings.map((row) => (
+              <button
+                type="button"
+                className={`hall-row rank-${row.rank} ${row.isAi ? "is-ai" : ""}`}
+                key={row.userId}
+                onClick={() => setSelectedPlayer(row)}
+              >
+                <span>#{row.rank}</span>
+                <strong>
+                  {row.nickname ?? "—"}
+                  {row.isAi && <small>AI</small>}
+                </strong>
+                <span>{row.points}</span>
+                <span>{row.exactScores}</span>
+                <span>{row.correctResults}</span>
+                <span>{row.predictionsCount}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {selectedPlayer && competition && (
+        <div className="fame-modal" role="dialog" aria-modal="true" aria-label={`${t.predictionsTitle}: ${selectedPlayer.nickname ?? ""}`}>
+          <div className="fame-modal-card">
+            <button className="modal-close" type="button" onClick={() => setSelectedPlayer(null)} aria-label={t.close}>
+              ×
+            </button>
+            <p className="eyebrow">{t.predictionsTitle}</p>
+            <h3>
+              #{selectedPlayer.rank} {selectedPlayer.nickname}
+            </h3>
+            <div className="prediction-archive-list">
+              {selectedPlayer.predictions.map((prediction) => {
+                const match = competition.matches.find((item) => item.id === prediction.matchId);
+                if (!match) return null;
+                const hasPick = prediction.homeScore !== null && prediction.awayScore !== null;
+                return (
+                  <article className={`prediction-archive-card ${predictionClass(prediction)}`} key={prediction.matchId}>
+                    <div>
+                      <span>{formatDate(match.kickoffAt, language)}</span>
+                      {match.stage && <span>{match.stage}</span>}
+                      {match.venue && <span>{match.venue}</span>}
+                    </div>
+                    <strong>
+                      {match.homeTeam} vs {match.awayTeam}
+                    </strong>
+                    <div className="prediction-scores">
+                      <span>
+                        <small>{t.finalScore}</small>
+                        <b>
+                          {match.finalHome ?? "–"}:{match.finalAway ?? "–"}
+                        </b>
+                      </span>
+                      <span>
+                        <small>{t.pick}</small>
+                        <b>
+                          {hasPick ? `${prediction.homeScore}:${prediction.awayScore}` : t.noPick}
+                        </b>
+                      </span>
+                      <span>
+                        <small>{t.points}</small>
+                        <b>{prediction.points}</b>
+                      </span>
+                    </div>
+                    {prediction.bonusUsed && <em>{t.bonus}</em>}
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="season-footer">{t.footer}</footer>
     </main>

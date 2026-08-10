@@ -1,0 +1,13 @@
+{
+  "generatedAt": null,
+  "competitions": [
+    {
+      "id": "world-cup-2026",
+      "name": "World Cup 2026",
+      "winner": "Spain",
+      "finishedAt": "2026-07-19",
+      "matches": [],
+      "rankings": []
+    }
+  ]
+}

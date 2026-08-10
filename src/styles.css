@@ -234,6 +234,282 @@ h1 {
   text-align: center;
 }
 
+.hall-of-fame {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+  gap: clamp(1rem, 3vw, 2rem);
+  align-items: start;
+  width: min(1100px, 100%);
+  margin: 0 auto clamp(1rem, 3vw, 2rem);
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: clamp(1.2rem, 3vw, 2rem);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 24px 60px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.hall-copy h2 {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(2rem, 5vw, 4.1rem);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.hall-copy p:not(.eyebrow) {
+  max-width: 32rem;
+  margin: 1rem 0;
+  color: rgba(248, 250, 252, 0.72);
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.hall-copy > span,
+.hall-empty {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: rgba(248, 250, 252, 0.72);
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 800;
+}
+
+.hall-copy strong {
+  color: #ffc947;
+}
+
+.hall-empty {
+  justify-self: stretch;
+  width: auto;
+  justify-content: center;
+  margin: 0;
+  text-align: center;
+}
+
+.hall-table {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.hall-row {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr) 4.7rem 4.3rem 4.7rem 5rem;
+  gap: 0.45rem;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1rem;
+  padding: 0.72rem 0.8rem;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+
+button.hall-row {
+  cursor: pointer;
+}
+
+button.hall-row:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.hall-head {
+  border-color: transparent;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.58);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hall-row strong {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hall-row small {
+  display: inline-grid;
+  place-items: center;
+  padding: 0.08rem 0.32rem;
+  border-radius: 999px;
+  color: #07111f;
+  background: #1fd36b;
+  font-size: 0.58rem;
+  font-weight: 950;
+}
+
+.hall-row.rank-1 {
+  border-color: rgba(255, 201, 71, 0.42);
+  background: linear-gradient(135deg, rgba(255, 201, 71, 0.3), rgba(255, 255, 255, 0.08));
+}
+
+.hall-row.rank-2 {
+  border-color: rgba(226, 232, 240, 0.36);
+  background: linear-gradient(135deg, rgba(226, 232, 240, 0.22), rgba(255, 255, 255, 0.08));
+}
+
+.hall-row.rank-3 {
+  border-color: rgba(244, 169, 107, 0.36);
+  background: linear-gradient(135deg, rgba(244, 169, 107, 0.24), rgba(255, 255, 255, 0.08));
+}
+
+.hall-row.is-ai {
+  border-color: rgba(31, 211, 107, 0.42);
+}
+
+.fame-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(4, 12, 27, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.fame-modal-card {
+  position: relative;
+  width: min(840px, 100%);
+  max-height: min(86vh, 760px);
+  overflow: auto;
+  padding: clamp(1rem, 3vw, 1.4rem);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: clamp(1.2rem, 3vw, 2rem);
+  color: #07111f;
+  background: #f8fafc;
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.36);
+}
+
+.modal-close {
+  position: sticky;
+  top: 0;
+  float: right;
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 0;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #07111f;
+  font-size: 1.55rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fame-modal-card .eyebrow {
+  color: #d92e42;
+}
+
+.fame-modal-card h3 {
+  margin: 0 3rem 1rem 0;
+  color: #07111f;
+  font-size: clamp(1.7rem, 4vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.prediction-archive-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.prediction-archive-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  border: 1px solid #dbe7ee;
+  border-radius: 1rem;
+  background: #ffffff;
+}
+
+.prediction-archive-card.correct {
+  border-color: rgba(31, 211, 107, 0.32);
+  background: #ecfdf3;
+}
+
+.prediction-archive-card.exact {
+  border-color: rgba(255, 201, 71, 0.45);
+  background: #fffbeb;
+}
+
+.prediction-archive-card.wrong {
+  border-color: rgba(255, 77, 94, 0.24);
+  background: #fff1f2;
+}
+
+.prediction-archive-card > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.prediction-archive-card > div:first-child span,
+.prediction-archive-card em {
+  width: max-content;
+  max-width: 100%;
+  padding: 0.24rem 0.5rem;
+  border-radius: 999px;
+  color: #53627a;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.prediction-archive-card > strong {
+  color: #07111f;
+  font-size: 1.05rem;
+}
+
+.prediction-scores {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.prediction-scores span {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.55rem;
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.76);
+  text-align: center;
+}
+
+.prediction-scores small {
+  color: #667085;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.prediction-scores b {
+  color: #07111f;
+  font-size: 1.1rem;
+}
+
 @media (max-width: 740px) {
   .season-closed-page {
     min-height: 100svh;
@@ -258,6 +534,40 @@ h1 {
 
   .countdown-tile:first-child {
     grid-column: 1 / -1;
+  }
+
+  .hall-of-fame {
+    grid-template-columns: 1fr;
+  }
+
+  .hall-row {
+    grid-template-columns: 2.4rem minmax(0, 1fr) 3.5rem 3rem 3.3rem 3.8rem;
+    gap: 0.18rem;
+    padding: 0.58rem 0.5rem;
+    border-radius: 0.85rem;
+    font-size: 0.82rem;
+  }
+
+  .hall-head {
+    font-size: 0.54rem;
+    letter-spacing: 0.02em;
+  }
+
+  .hall-row strong {
+    font-size: 0.86rem;
+  }
+
+  .fame-modal {
+    padding: 0.65rem;
+  }
+
+  .fame-modal-card {
+    max-height: 88vh;
+    border-radius: 1.2rem;
+  }
+
+  .prediction-scores {
+    grid-template-columns: 1fr;
   }
 }
 
