@@ -136,7 +136,8 @@ const predictions = runD1(`
 const aiInsights = runD1(`
   SELECT
     ai_fixture_insights.match_id,
-    ai_fixture_insights.insight_json,
+    json_extract(ai_fixture_insights.insight_json, '$.suggested_pick') AS suggested_pick,
+    json_extract(ai_fixture_insights.insight_json, '$.bonus_recommendation.use_bonus') AS bonus_recommended,
     ai_fixture_insights.created_at
   FROM ai_fixture_insights
   ORDER BY ai_fixture_insights.created_at ASC
@@ -161,8 +162,7 @@ for (const match of matches.filter((row) => isGroupStage(row.stage)).sort((a, b)
   if (aiBonusMatchIds.size >= 2) break;
   const insight = latestPreKickoffAiInsights.get(match.id);
   if (!insight) continue;
-  const parsed = safeJsonParse(insight.insight_json);
-  if (parsed?.bonus_recommendation?.use_bonus === true) aiBonusMatchIds.add(match.id);
+  if (insight.bonus_recommended === 1 || insight.bonus_recommended === true) aiBonusMatchIds.add(match.id);
 }
 
 function archivePrediction(match, prediction) {
@@ -237,8 +237,7 @@ function buildHumanRow(user) {
 function buildAiRow() {
   const playerPredictions = matches.map((match) => {
     const insight = latestPreKickoffAiInsights.get(match.id);
-    const parsed = insight ? safeJsonParse(insight.insight_json) : {};
-    const scoreline = parseAiScoreline(parsed.suggested_pick);
+    const scoreline = parseAiScoreline(insight?.suggested_pick);
     return archivePrediction(match, scoreline ? {
       home_score: scoreline.home,
       away_score: scoreline.away,
